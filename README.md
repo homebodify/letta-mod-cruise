@@ -100,21 +100,6 @@ The first version focuses on:
 - `report.md` generation
 - JSON handoff consumption for future CruiseUX integration
 
-## Not in MVP
-
-CruiseCode intentionally does not include these yet:
-
-- full autonomous loop execution
-- multi-agent orchestration
-- automatic worktree creation
-- PR/commit automation
-- native helper binaries
-- CI import
-- visual/browser QA
-- Python/Rust/Go check adapters
-
-These may be added later only if real usage shows they are needed.
-
 ## CruiseUX handoff direction
 
 CruiseCode is designed to pair with CruiseUX.
@@ -132,13 +117,9 @@ implementation-handoff.json
 
 CruiseCode maps UX acceptance criteria such as `ux-ac-001` into implementation acceptance criteria while preserving the original `ux_ref`.
 
-## Documentation
+## Design notes
 
-See the full spec:
-
-```txt
-CruiseCode_SPEC.md
-```
+For a concise public design overview, see [docs/DESIGN.md](./docs/DESIGN.md).
 
 ## Security notes
 
@@ -153,4 +134,4 @@ This repository should only contain source and documentation. Do not commit:
 
 ## License
 
-No license has been declared yet.
+MIT License. See [LICENSE](./LICENSE).

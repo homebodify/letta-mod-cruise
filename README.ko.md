@@ -102,21 +102,6 @@ CruiseCode는 홈 디렉토리보다 실제 프로젝트 디렉토리에서 사�
 - `report.md` 생성
 - 향후 CruiseUX 연동을 위한 JSON handoff 소비
 
-## MVP에서 제외한 것
-
-아래 기능은 의도적으로 첫 버전에서 제외했습니다.
-
-- 완전 자율 loop 실행
-- multi-agent orchestration
-- 자동 worktree 생성
-- PR/commit 자동화
-- native helper binary
-- CI import
-- visual/browser QA
-- Python/Rust/Go check adapter
-
-실제 사용 패턴에서 필요성이 분명해질 때만 후속 버전에서 추가합니다.
-
 ## CruiseUX handoff 방향
 
 CruiseCode는 CruiseUX와 함께 쓰이도록 설계됐습니다.
@@ -134,13 +119,9 @@ implementation-handoff.json
 
 CruiseCode는 `ux-ac-001` 같은 UX acceptance criteria를 구현 acceptance criteria로 변환하면서 원래 `ux_ref`를 보존합니다.
 
-## 문서
+## 디자인 노트
 
-전체 스펙은 아래 파일을 참고하세요.
-
-```txt
-CruiseCode_SPEC.md
-```
+간결한 공개용 설계 개요는 [docs/DESIGN.md](./docs/DESIGN.md)를 참고하세요.
 
 ## 보안 메모
 
@@ -155,4 +136,4 @@ CruiseCode_SPEC.md
 
 ## License
 
-아직 별도 라이선스를 선언하지 않았습니다.
+MIT License. See [LICENSE](./LICENSE).
