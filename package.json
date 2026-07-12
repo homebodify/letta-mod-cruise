@@ -3,7 +3,6 @@
   "version": "0.1.0",
   "description": "Evidence-first Letta Code mod for verifiable coding tasks, UX handoffs, checks, verdicts, and reports.",
   "author": "homebodify",
-  "license": "MIT",
   "type": "module",
   "keywords": [
     "letta-package",
@@ -19,14 +18,10 @@
     "type": "git",
     "url": "https://tangled.org/homebodify.tngl.sh/letta-mode-cruisecode"
   },
-  "scripts": {
-    "check": "node scripts/check-package.mjs"
-  },
   "files": [
     "README.md",
     "README.ko.md",
     "MOD.md",
-    "LICENSE",
     "mods"
   ],
   "letta": {

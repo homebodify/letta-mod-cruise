@@ -142,7 +142,3 @@ LETTA_DISABLE_MODS=1 letta
 Then remove or edit the mod package and run `/reload`.
 
 See MOD.md for the agent-facing behavioral contract.
-
-## License
-
-MIT License. See [LICENSE](./LICENSE).
