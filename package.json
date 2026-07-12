@@ -1,0 +1,45 @@
+{
+  "name": "cruise-code",
+  "version": "0.1.0",
+  "description": "Evidence-first Letta Code mod for verifiable coding tasks, UX handoffs, checks, verdicts, and reports.",
+  "author": "homebodify",
+  "license": "MIT",
+  "type": "module",
+  "keywords": [
+    "letta-package",
+    "letta-mod",
+    "letta-code",
+    "coding-agent",
+    "evidence-first",
+    "verification",
+    "ux-handoff",
+    "cruise-code"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://tangled.org/homebodify.tngl.sh/letta-mode-cruisecode"
+  },
+  "scripts": {
+    "check": "node scripts/check-package.mjs"
+  },
+  "files": [
+    "README.md",
+    "README.ko.md",
+    "MOD.md",
+    "LICENSE",
+    "mods"
+  ],
+  "letta": {
+    "manifestVersion": 1,
+    "mods": [
+      "./mods/index.ts"
+    ],
+    "capabilities": [
+      "commands",
+      "ui.panels"
+    ],
+    "engines": {
+      "lettaCodeCli": ">=0.27.29"
+    }
+  }
+}

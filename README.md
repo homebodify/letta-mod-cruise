@@ -4,45 +4,41 @@
 
 CruiseCode is an evidence-first coding workflow mod for Letta Code.
 
-It turns coding tasks and UX handoffs into verifiable contracts, evidence, verdicts, and reports. The goal is not to be a bigger autonomous coding harness. CruiseCode focuses on making agent-assisted coding work traceable, reviewable, and honest about what is or is not verified.
+It turns implementation tasks and UX handoffs into verifiable contracts, evidence, verdicts, and reports.
 
-## Why CruiseCode exists
-
-AI coding agents can often produce code quickly, but the harder question is whether the result can be trusted.
-
-CruiseCode helps answer:
-
-- What was the task supposed to satisfy?
-- Which acceptance criteria were used?
-- What evidence supports the implementation?
-- Which checks passed or failed?
-- What is still missing or unverified?
-
-The core rule is:
-
-```txt
+```text
 No evidence → no verified
 ```
 
-## Commands
+## What it adds
 
-```txt
-/code-cruise "task"        Create a run and Evidence Contract
-/code-cruise --verify-only Verify the current git diff with available checks
-/code-cruise --resume      Show the active run
-/code-cruise --handoff <file>
-                            Create a run from implementation-handoff.json
-/code-plan [task]          Create or update the Evidence Contract
-/code-check                Collect git/check evidence
-/code-status               Show current run status
-/code-report               Generate report.md
+| Command | Purpose | Best used when |
+| --- | --- | --- |
+| `/code-cruise "task"` | Creates a run and Evidence Contract | You are starting a coding task that should be traceable |
+| `/code-cruise --verify-only` | Verifies the current git diff with available checks | You already changed code and want evidence/reporting |
+| `/code-cruise --resume` | Shows the active run | You want to continue or inspect the current run |
+| `/code-cruise --handoff <file>` | Creates a run from `implementation-handoff.json` | You are continuing from a UX/product handoff |
+| `/code-plan [task]` | Creates or updates the Evidence Contract | The task criteria or checks need to be clarified |
+| `/code-check` | Collects git/check evidence | You want proof before claiming progress |
+| `/code-status` | Shows run state, evidence, blockers, and next action | You need a readable dashboard |
+| `/code-report` | Generates `report.md` | You need a handoff or verification summary |
+
+## Core idea
+
+CruiseCode separates workflow state from verification judgment.
+
+```text
+phase   = where the run is in the workflow
+verdict = what the evidence says about trust/completion
 ```
 
-## What it stores
+A run can be complete enough to report but still not be verified. That distinction is the point.
 
-CruiseCode stores project-local state under the current working directory:
+## Storage
 
-```txt
+CruiseCode writes project-local state under the current working directory:
+
+```text
 .letta/cruise-code/
   config.json
   active.json
@@ -63,74 +59,89 @@ CruiseCode stores project-local state under the current working directory:
       report.md
 ```
 
-This repository intentionally does **not** include local run state or evidence artifacts.
+This repository does **not** include local run state or evidence artifacts.
 
-## Install
+## Installation
 
-Copy the mod file into your local Letta Code mods directory:
+### Local development install
+
+Clone this repo and copy the mod entry into your local Letta mods directory:
 
 ```bash
+git clone https://tangled.org/homebodify.tngl.sh/letta-mode-cruisecode
 mkdir -p ~/.letta/mods
-cp cruise-code.js ~/.letta/mods/cruise-code.js
+cp letta-mode-cruisecode/mods/index.ts ~/.letta/mods/cruise-code.js
 ```
 
-Then reload Letta Code:
+Then reload active Letta Code sessions:
 
-```txt
+```text
 /reload
+```
+
+Verify commands are available:
+
+```text
+/code-cruise help
 ```
 
 Use CruiseCode from a project directory, not from your home directory:
 
-```txt
+```text
 /code-cruise "Fix login redirect after expired session"
 ```
 
-## MVP scope
+## Development
 
-The first version focuses on:
+Run the package check:
 
-- Evidence Contract generation
-- JS/TS check detection from `package.json`
-- git status/diff evidence collection
-- typecheck/test/lint/build output capture
-- verdict calculation
-- compact status panel
-- detailed `/code-status`
-- `report.md` generation
-- JSON handoff consumption for future CruiseUX integration
+```bash
+npm run check
+```
 
-## CruiseUX handoff direction
+The check verifies:
+
+- `package.json#letta` exists
+- declared mod files exist
+- `MOD.md` frontmatter includes `name` and `description`
+- the mod source parses as JavaScript-compatible TypeScript
+
+## CruiseUX handoff
 
 CruiseCode is designed to pair with CruiseUX.
 
-```txt
-CruiseUX  → UX framing, research, interview, ideation, spec, review
+```text
+CruiseUX   → UX framing, research, interview, ideation, spec, review
 CruiseCode → implementation, evidence, checks, verdict, report
 ```
 
-Future CruiseUX handoff files should use:
+The intended handoff file is:
 
-```txt
+```text
 implementation-handoff.json
 ```
 
-CruiseCode maps UX acceptance criteria such as `ux-ac-001` into implementation acceptance criteria while preserving the original `ux_ref`.
+CruiseCode preserves original UX acceptance criteria such as `ux-ac-001` as `ux_ref`, so reports can connect UX intent to implementation evidence.
 
-## Design notes
+## Safety
 
-For a concise public design overview, see [docs/DESIGN.md](./docs/DESIGN.md).
+Mods are trusted local code. Review the source before installing third-party mods.
 
-## Security notes
+This mod performs local filesystem writes under the active project’s `.letta/cruise-code/` directory and runs local git/check commands only when invoked by the user. It has no startup side effects and does not run background timers by itself.
 
-This repository should only contain source and documentation. Do not commit:
+Do not commit private CruiseCode run state, evidence files, `.env` files, credentials, local diagnostics, or private project logs.
 
-- `.letta/cruise-code/` run state
-- evidence files from private projects
-- `.env` files
-- credentials or API keys
-- local diagnostics
-- private project paths or logs
+If a mod breaks startup or command handling, recover with:
+
+```bash
+letta --no-mods
+# or
+LETTA_DISABLE_MODS=1 letta
+```
+
+Then remove or edit the mod package and run `/reload`.
+
+See MOD.md for the agent-facing behavioral contract.
 
 ## License
 
