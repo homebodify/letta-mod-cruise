@@ -63,14 +63,11 @@ CruiseCode는 현재 작업 디렉토리 기준으로 project-local state를 저
 
 ## 설치
 
-### Local development install
-
-이 repo를 clone하고 mod entry를 로컬 Letta mods 디렉토리에 복사합니다.
+Tangled repo는 두 단계로 설치합니다. 먼저 repo를 clone하고, clone한 local package를 Letta에 설치합니다.
 
 ```bash
 git clone https://tangled.org/homebodify.tngl.sh/letta-mode-cruisecode
-mkdir -p ~/.letta/mods
-cp letta-mode-cruisecode/mods/index.ts ~/.letta/mods/cruise-code.js
+letta install ./letta-mode-cruisecode
 ```
 
 그 다음 Letta Code 세션에서 reload합니다.
@@ -85,6 +82,16 @@ cp letta-mode-cruisecode/mods/index.ts ~/.letta/mods/cruise-code.js
 /code-cruise help
 ```
 
+사용 중인 Letta Code 버전에서 local package install이 동작하지 않으면, mod 파일을 직접 복사해도 됩니다.
+
+```bash
+git clone https://tangled.org/homebodify.tngl.sh/letta-mode-cruisecode
+mkdir -p ~/.letta/mods
+cp letta-mode-cruisecode/mods/index.ts ~/.letta/mods/cruise-code.js
+```
+
+그 다음 `/reload`를 실행하세요.
+
 CruiseCode는 홈 디렉토리보다 실제 프로젝트 디렉토리에서 사용하는 것이 좋습니다.
 
 ```text
@@ -93,18 +100,25 @@ CruiseCode는 홈 디렉토리보다 실제 프로젝트 디렉토리에서 사�
 
 ## Development
 
-package check를 실행합니다.
+공개 package는 의도적으로 작게 유지합니다.
 
-```bash
-npm run check
+```text
+MOD.md
+README.md
+README.ko.md
+mods/index.ts
+package.json
 ```
 
-check는 아래를 확인합니다.
+간단한 source/package check는 아래처럼 실행할 수 있습니다.
 
-- `package.json#letta` 존재 여부
-- 선언된 mod file 존재 여부
-- `MOD.md` frontmatter의 `name`, `description`
-- mod source가 JavaScript-compatible TypeScript로 parse되는지
+```bash
+tmp=$(mktemp -d)
+cp mods/index.ts "$tmp/mod.mjs"
+node --check "$tmp/mod.mjs"
+rm -rf "$tmp"
+npm pack --dry-run
+```
 
 ## CruiseUX handoff
 

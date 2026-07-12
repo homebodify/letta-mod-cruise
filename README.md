@@ -63,14 +63,11 @@ This repository does **not** include local run state or evidence artifacts.
 
 ## Installation
 
-### Local development install
-
-Clone this repo and copy the mod entry into your local Letta mods directory:
+Tangled repositories are installed in two steps: clone the repo, then install the local package.
 
 ```bash
 git clone https://tangled.org/homebodify.tngl.sh/letta-mode-cruisecode
-mkdir -p ~/.letta/mods
-cp letta-mode-cruisecode/mods/index.ts ~/.letta/mods/cruise-code.js
+letta install ./letta-mode-cruisecode
 ```
 
 Then reload active Letta Code sessions:
@@ -85,6 +82,16 @@ Verify commands are available:
 /code-cruise help
 ```
 
+If your Letta Code version does not support local package install, copy the mod file manually:
+
+```bash
+git clone https://tangled.org/homebodify.tngl.sh/letta-mode-cruisecode
+mkdir -p ~/.letta/mods
+cp letta-mode-cruisecode/mods/index.ts ~/.letta/mods/cruise-code.js
+```
+
+Then run `/reload`.
+
 Use CruiseCode from a project directory, not from your home directory:
 
 ```text
@@ -93,18 +100,25 @@ Use CruiseCode from a project directory, not from your home directory:
 
 ## Development
 
-Run the package check:
+The public package is intentionally small:
 
-```bash
-npm run check
+```text
+MOD.md
+README.md
+README.ko.md
+mods/index.ts
+package.json
 ```
 
-The check verifies:
+For a quick source/package check:
 
-- `package.json#letta` exists
-- declared mod files exist
-- `MOD.md` frontmatter includes `name` and `description`
-- the mod source parses as JavaScript-compatible TypeScript
+```bash
+tmp=$(mktemp -d)
+cp mods/index.ts "$tmp/mod.mjs"
+node --check "$tmp/mod.mjs"
+rm -rf "$tmp"
+npm pack --dry-run
+```
 
 ## CruiseUX handoff
 
