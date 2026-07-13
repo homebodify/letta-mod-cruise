@@ -57,6 +57,7 @@ CruiseCode는 현재 작업 디렉토리 기준으로 project-local state를 저
         lint.txt
         build.txt
       report.md
+      lesson-candidates.json
 ```
 
 이 저장소에는 local run state나 private evidence artifact를 포함하지 않습니다.
@@ -136,6 +137,26 @@ implementation-handoff.json
 ```
 
 CruiseCode는 `ux-ac-001` 같은 원래 UX acceptance criteria를 `ux_ref`로 보존해서, report에서 UX 의도와 구현 evidence를 연결할 수 있게 합니다.
+
+## muscle-memory 연동
+
+CruiseCode는 `muscle-memory`와 협업할 수 있지만, skill 관리는 직접 맡지 않습니다.
+
+```text
+CruiseUX      → UX 의도와 implementation handoff 작성
+CruiseCode    → evidence, verdict, report, reusable lesson candidate 작성
+muscle-memory → 실제로 재사용 가능한 lesson만 distill/dedup/sanitize/publish
+```
+
+`/code-report`는 `report.md` 옆에 `lesson-candidates.json`을 쓰고, report 안에 `Reusable Lesson Candidates` 섹션을 추가합니다. 이것들은 **skill이 아닙니다**. `muscle-memory`나 사람이 검토할 수 있는 후보 힌트입니다. CruiseCode는 skill shelf에 쓰지 않고, Custom Skill을 publish하지 않고, 어떤 lesson을 승격할지 결정하지 않습니다.
+
+CruiseCode와 함께 dogfood할 때 권장하는 보수적인 `muscle-memory` 기본값은 다음입니다.
+
+```bash
+MM_REFLECT=staged
+MM_CAPTURE=off
+MM_PUBLISH=off
+```
 
 ## Safety
 

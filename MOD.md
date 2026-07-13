@@ -53,6 +53,8 @@ State is written under the current working directory:
 
 This includes run metadata, the Evidence Contract, append-only ledger events, latest evidence snapshots, and `report.md`.
 
+`/code-report` also writes `lesson-candidates.json`. This file is a boundary artifact for `muscle-memory`: CruiseCode may suggest reusable lesson candidates from the evidence chain, but it does not create, update, sanitize, graduate, or publish skills.
+
 ## Evidence Contract
 
 `plan.json` is the Evidence Contract. It records:
@@ -88,6 +90,17 @@ implementation-handoff.json
 ```
 
 When a handoff includes UX acceptance criteria such as `ux-ac-001`, CruiseCode preserves that original reference as `ux_ref` in the implementation plan.
+
+## muscle-memory boundary
+
+Use CruiseCode for the current coding run's proof. Use `muscle-memory` for durable skill lifecycle work across runs.
+
+```text
+CruiseCode    → report.md + lesson-candidates.json
+muscle-memory → distill / dedup / quality gate / sanitize / publish
+```
+
+CruiseCode should not add `/code-skill`, `/code-learn`, or automatic skill writes unless the product boundary is deliberately redesigned later.
 
 ## Safety
 

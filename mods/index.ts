@@ -224,6 +224,7 @@ function paths(cwd, runId = null) {
     p.evidenceDir = join(p.runDir, "evidence");
     p.evidenceIndex = join(p.evidenceDir, "index.json");
     p.report = join(p.runDir, "report.md");
+    p.lessonCandidates = join(p.runDir, "lesson-candidates.json");
   }
   return p;
 }
@@ -996,7 +997,131 @@ function formatStatus(cwd, run, plan, evidenceIndex) {
   ].join("\n");
 }
 
-function buildReportMarkdown(cwd, run, plan, evidenceIndex, verdictResult) {
+function checkLabelFromEvidenceType(plan, evidenceType) {
+  const check = (plan?.checks || []).find((item) => item.evidence_type === evidenceType);
+  return check?.id || evidenceType.replace(/_output$/, "");
+}
+
+function buildLessonCandidates(cwd, run, plan, evidenceIndex, verdictResult) {
+  const evidence = evidenceIndex?.items || [];
+  const passedChecks = evidence.filter((item) => item.status === "passed" && String(item.type || "").endsWith("_output"));
+  const failedChecks = evidence.filter((item) => item.status === "failed" && String(item.type || "").endsWith("_output"));
+  const hasDiff = evidence.some((item) => item.type === "git_diff" && ["collected", "passed"].includes(item.status));
+  const criteria = plan?.acceptance_criteria || [];
+  const candidates = [];
+
+  if (hasDiff && passedChecks.length) {
+    candidates.push({
+      id: "cc-lesson-verification-loop",
+      title: "Evidence-first coding verification loop",
+      status: verdictResult.verdict === "verified" ? "candidate" : "parked",
+      suggested_owner: "muscle-memory",
+      suggested_action: "update_existing_skill_first",
+      evidence_chain: [
+        "implementation produced a git diff",
+        ...passedChecks.map((item) => `${checkLabelFromEvidenceType(plan, item.type)} check passed`),
+        `CruiseCode verdict: ${verdictResult.verdict}`,
+      ],
+      reusable_scope: "Coding tasks where a git diff must be backed by executable checks before claiming completion.",
+      not_a_skill_if: [
+        "The lesson only repeats this project name, file path, or one-off task wording.",
+        "No reusable verification procedure exists beyond the normal CruiseCode report.",
+      ],
+      redaction_notes: [
+        "Remove local workspace paths from reports before sharing.",
+        "Remove private project names, patient data, secrets, and company-specific identifiers.",
+      ],
+      source_artifacts: ["report.md", "evidence/index.json"],
+      confidence: verdictResult.verdict === "verified" ? "medium" : "low",
+    });
+  }
+
+  if ((run.source?.type === "handoff" || run.source?.type === "cruiseux") && criteria.length) {
+    candidates.push({
+      id: "cc-lesson-ux-handoff-to-evidence-contract",
+      title: "CruiseUX handoff to CruiseCode evidence contract",
+      status: hasDiff ? "candidate" : "parked",
+      suggested_owner: "muscle-memory",
+      suggested_action: "update_existing_skill_first",
+      evidence_chain: [
+        "CruiseUX implementation handoff was consumed",
+        `${criteria.length} acceptance criterion/criteria were converted into implementation evidence requirements`,
+        hasDiff ? "implementation evidence was collected" : "implementation evidence is still missing",
+      ],
+      reusable_scope: "UX-to-code handoffs where acceptance criteria need traceable implementation evidence.",
+      not_a_skill_if: [
+        "The handoff only contains project-specific product copy or private workflow names.",
+        "Acceptance criteria were too vague to become reusable implementation checks.",
+      ],
+      redaction_notes: [
+        "Keep UX reference IDs, but remove private research notes or healthcare/customer identifiers before sharing.",
+      ],
+      source_artifacts: ["plan.json", "report.md"],
+      confidence: hasDiff ? "medium" : "low",
+    });
+  }
+
+  if (failedChecks.length) {
+    candidates.push({
+      id: "cc-lesson-failed-check-triage",
+      title: "Failed check triage from CruiseCode evidence",
+      status: "parked",
+      suggested_owner: "muscle-memory",
+      suggested_action: "do_not_create_until_repaired_or_repeated",
+      evidence_chain: failedChecks.map((item) => `${checkLabelFromEvidenceType(plan, item.type)} check failed (${item.failure_type || "unknown"})`),
+      reusable_scope: "Potential debugging workflow only after a later source edit and passing rerun prove the repair path.",
+      not_a_skill_if: [
+        "The failure remains unresolved.",
+        "The output only says a check failed without a durable repair mechanism.",
+      ],
+      redaction_notes: [
+        "Do not copy raw logs with secrets, local paths, or private identifiers into a shared skill.",
+      ],
+      source_artifacts: failedChecks.map((item) => item.path).filter(Boolean),
+      confidence: "low",
+    });
+  }
+
+  return {
+    schema_version: SCHEMA_VERSION,
+    source: MOD_ID,
+    run_id: run.run_id,
+    generated_at: now(),
+    boundary: "CruiseCode exports reusable lesson candidates only. muscle-memory owns distillation, deduplication, quality gates, sanitization, and publishing.",
+    workspace: cwd,
+    verdict: verdictResult.verdict,
+    candidates,
+  };
+}
+
+function lessonCandidateMarkdown(lessonExport) {
+  const candidates = lessonExport?.candidates || [];
+  if (!candidates.length) {
+    return [
+      "- none",
+      "- Boundary: CruiseCode did not find a reusable lesson candidate. Do not create a skill from this run unless later repeated work provides stronger evidence.",
+    ];
+  }
+  return candidates.flatMap((candidate, index) => [
+    `### ${index + 1}. ${candidate.title}`,
+    "",
+    `- Status: ${candidate.status}`,
+    `- Suggested owner: ${candidate.suggested_owner}`,
+    `- Suggested action: ${candidate.suggested_action}`,
+    `- Reusable scope: ${candidate.reusable_scope}`,
+    "- Evidence chain:",
+    ...(candidate.evidence_chain || []).map((item) => `  - ${item}`),
+    "- Not a skill if:",
+    ...(candidate.not_a_skill_if || []).map((item) => `  - ${item}`),
+    "- Redaction notes:",
+    ...(candidate.redaction_notes || []).map((item) => `  - ${item}`),
+    `- Source artifacts: ${(candidate.source_artifacts || []).join(", ") || "none"}`,
+    `- Confidence: ${candidate.confidence}`,
+    "",
+  ]);
+}
+
+function buildReportMarkdown(cwd, run, plan, evidenceIndex, verdictResult, lessonExport) {
   const blockers = unresolvedBlockers(run);
   const evidence = evidenceIndex?.items || [];
   const evidenceByType = new Map(evidence.map((item) => [item.type, item]));
@@ -1040,6 +1165,10 @@ function buildReportMarkdown(cwd, run, plan, evidenceIndex, verdictResult) {
     "",
     "## Missing Evidence",
     ...missingEvidenceLines(plan, evidenceIndex),
+    "",
+    "## Reusable Lesson Candidates",
+    ...lessonCandidateMarkdown(lessonExport),
+    "Boundary: CruiseCode records candidates only; muscle-memory should decide whether to distill, deduplicate, sanitize, or publish a skill.",
     "",
     "## Next Recommended Action",
     nextAction(run, plan, evidenceIndex),
@@ -1275,9 +1404,16 @@ async function handleCodeReport(letta, ctx) {
   if (!unresolvedBlockers(run).length) run.phase = "closed";
   updateRunSummaryFromPlan(run, plan, evidenceIndex);
   saveRun(cwd, run);
-  const report = buildReportMarkdown(cwd, run, plan, evidenceIndex, verdictResult);
+  const lessonExport = buildLessonCandidates(cwd, run, plan, evidenceIndex, verdictResult);
+  writeJson(paths(cwd, run.run_id).lessonCandidates, lessonExport);
+  const report = buildReportMarkdown(cwd, run, plan, evidenceIndex, verdictResult, lessonExport);
   writeText(paths(cwd, run.run_id).report, report);
-  appendLedger(cwd, run, "report_created", "Report generated", { report_path: "report.md", verdict: run.verdict });
+  appendLedger(cwd, run, "report_created", "Report generated", {
+    report_path: "report.md",
+    lesson_candidates_path: "lesson-candidates.json",
+    lesson_candidates: lessonExport.candidates.length,
+    verdict: run.verdict,
+  });
   updatePanel(letta, run, plan, evidenceIndex);
   const reportPath = paths(cwd, run.run_id).report;
   return output([
@@ -1286,6 +1422,7 @@ async function handleCodeReport(letta, ctx) {
     "CruiseCode Report created.",
     `Status: ${run.verdict}`,
     `Report: ${reportPath}`,
+    `Lesson candidates: ${paths(cwd, run.run_id).lessonCandidates}`,
     "",
     "Next:",
     nextAction(run, plan, evidenceIndex),

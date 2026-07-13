@@ -57,6 +57,7 @@ CruiseCode writes project-local state under the current working directory:
         lint.txt
         build.txt
       report.md
+      lesson-candidates.json
 ```
 
 This repository does **not** include local run state or evidence artifacts.
@@ -136,6 +137,26 @@ implementation-handoff.json
 ```
 
 CruiseCode preserves original UX acceptance criteria such as `ux-ac-001` as `ux_ref`, so reports can connect UX intent to implementation evidence.
+
+## muscle-memory integration
+
+CruiseCode can cooperate with `muscle-memory` without taking over skill management.
+
+```text
+CruiseUX      → writes UX intent and implementation handoff
+CruiseCode    → writes evidence, verdict, report, and reusable lesson candidates
+muscle-memory → distills/deduplicates/sanitizes/publishes skills when a lesson is actually reusable
+```
+
+`/code-report` writes `lesson-candidates.json` next to `report.md` and adds a `Reusable Lesson Candidates` section to the report. These are **not skills**. They are reviewable hints for `muscle-memory` or a human reviewer. CruiseCode does not write to the skill shelf, publish Custom Skills, or decide whether a lesson deserves graduation.
+
+Recommended conservative `muscle-memory` defaults while dogfooding CruiseCode:
+
+```bash
+MM_REFLECT=staged
+MM_CAPTURE=off
+MM_PUBLISH=off
+```
 
 ## Safety
 
