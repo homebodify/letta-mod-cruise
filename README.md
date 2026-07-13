@@ -1,6 +1,6 @@
 # CruiseCode
 
-[한국어 README](./README.ko.md)
+[English](https://github.com/homebodify/letta-mode-cruisecode) | [한국어](https://github.com/homebodify/letta-mode-cruisecode/blob/main/README.ko.md)
 
 CruiseCode is an evidence-first coding workflow mod for Letta Code.
 
@@ -140,7 +140,7 @@ CruiseCode preserves original UX acceptance criteria such as `ux-ac-001` as `ux_
 
 ## muscle-memory integration
 
-CruiseCode can cooperate with `muscle-memory` without taking over skill management.
+CruiseCode can cooperate with [`muscle-memory`](https://github.com/letta-ai/mods/tree/main/packages/muscle-memory) without taking over skill management.
 
 ```text
 CruiseUX      → writes UX intent and implementation handoff
