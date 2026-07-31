@@ -4,7 +4,7 @@
 
 CruiseCode is an evidence-first coding workflow mod for Letta Code.
 
-It turns implementation tasks and UX handoffs into verifiable contracts, evidence, verdicts, and reports.
+It turns implementation tasks and UX handoffs into executed code changes with a verifiable contract, live progress, evidence, verdict, and report.
 
 ```text
 No evidence → no verified
@@ -14,7 +14,7 @@ No evidence → no verified
 
 | Command | Purpose | Best used when |
 | --- | --- | --- |
-| `/code-cruise "task"` | Creates a run and Evidence Contract | You are starting a coding task that should be traceable |
+| `/code-cruise "task"` | Starts the coding agent, tracks progress, verifies the result, and writes a report | You want CruiseCode to implement a task end to end |
 | `/code-cruise --verify-only` | Verifies the current git diff with available checks | You already changed code and want evidence/reporting |
 | `/code-cruise --resume` | Shows the active run | You want to continue or inspect the current run |
 | `/code-cruise --handoff <file>` | Creates a run from `implementation-handoff.json` | You are continuing from a UX/product handoff |
@@ -22,6 +22,7 @@ No evidence → no verified
 | `/code-check` | Collects git/check evidence | You want proof before claiming progress |
 | `/code-status` | Shows run state, evidence, blockers, and next action | You need a readable dashboard |
 | `/code-report` | Generates `report.md` | You need a handoff or verification summary |
+| `/code-panel hide\|show\|status` | Controls the progress panel | You want to hide, restore, or inspect panel behavior |
 
 ## Core idea
 
@@ -33,6 +34,28 @@ verdict = what the evidence says about trust/completion
 ```
 
 A run can be complete enough to report but still not be verified. That distinction is the point.
+
+## Automatic execution
+
+`/code-cruise "task"` now starts a real agent turn instead of stopping after plan creation.
+
+```text
+task prompt
+→ Evidence Contract
+→ inspect project
+→ edit files
+→ run relevant checks
+→ collect git/check evidence
+→ calculate verdict
+→ generate report.md
+→ show final summary
+```
+
+The progress panel is event-driven. Its current activity and step count update from the actual tools used by the coding agent. The run is bound to the conversation and agent that started it, so tool events from another conversation cannot advance or finalize it.
+
+The panel automatically closes 10 seconds after a run reaches `Closed`, `Blocked`, or `Cancelled`. Use `/code-panel hide` to keep it hidden for the current project and `/code-panel show` to restore it.
+
+Automatic finalization runs once when the implementation turn ends. It collects staged and unstaged git changes, records untracked filenames without copying their contents, runs detected checks, generates the report, and injects one final-summary turn. CruiseCode does not commit or push unless the user explicitly asks the coding agent to do so.
 
 ## Storage
 
@@ -109,11 +132,13 @@ README.md
 README.ko.md
 mods/index.ts
 package.json
+tests/cruise-code.test.mjs
 ```
 
 For a quick source/package check:
 
 ```bash
+npm test
 tmp=$(mktemp -d)
 cp mods/index.ts "$tmp/mod.mjs"
 node --check "$tmp/mod.mjs"
@@ -162,7 +187,7 @@ MM_PUBLISH=off
 
 Mods are trusted local code. Review the source before installing third-party mods.
 
-This mod performs local filesystem writes under the active project’s `.letta/cruise-code/` directory and runs local git/check commands only when invoked by the user. It has no startup side effects and does not run background timers by itself.
+This mod performs local filesystem writes under the active project’s `.letta/cruise-code/` directory. After the user invokes `/code-cruise`, it observes that run's tool/turn events and runs local git/check commands during automatic finalization. It has no startup side effects and does not run background timers by itself.
 
 Do not commit private CruiseCode run state, evidence files, `.env` files, credentials, local diagnostics, or private project logs.
 

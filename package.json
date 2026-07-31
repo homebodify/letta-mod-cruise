@@ -1,9 +1,12 @@
 {
   "name": "cruise-code",
-  "version": "0.1.0",
-  "description": "Evidence-first Letta Code mod for verifiable coding tasks, UX handoffs, checks, verdicts, and reports.",
+  "version": "0.2.1",
+  "description": "Evidence-first Letta Code mod that executes coding tasks, tracks live progress, verifies changes, and writes reports.",
   "author": "homebodify",
   "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs"
+  },
   "keywords": [
     "letta-package",
     "letta-mod",
@@ -22,7 +25,8 @@
     "README.md",
     "README.ko.md",
     "MOD.md",
-    "mods"
+    "mods",
+    "tests"
   ],
   "letta": {
     "manifestVersion": 1,
@@ -31,7 +35,9 @@
     ],
     "capabilities": [
       "commands",
-      "ui.panels"
+      "ui.panels",
+      "events.tools",
+      "events.turns"
     ],
     "engines": {
       "lettaCodeCli": ">=0.27.29"

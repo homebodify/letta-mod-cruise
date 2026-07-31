@@ -1,19 +1,19 @@
 ---
 name: CruiseCode
-description: Evidence-first coding workflow commands for turning implementation tasks and UX handoffs into contracts, evidence, verdicts, and reports.
+description: Evidence-first coding workflow that executes implementation tasks and UX handoffs with live progress, checks, verdicts, and reports.
 ---
 
 # CruiseCode Mod
 
 CruiseCode registers `/code-*` slash commands for evidence-first coding work in Letta Code.
 
-It is designed to make implementation work easier to trust. A run starts from a task or handoff, creates an Evidence Contract, collects git/check evidence, calculates a conservative verdict, and writes a report.
+It is designed to make implementation work easier to trust. A run starts from a task or handoff, creates an Evidence Contract, launches the coding agent, tracks actual tool activity, collects git/check evidence, calculates a conservative verdict, and writes a report.
 
-CruiseCode is intentionally not a full autonomous coding harness. It does not create worktrees, commit code, open pull requests, run multi-agent teams, or auto-loop through fixes in this MVP.
+CruiseCode runs one foreground coding-agent turn and automatically finalizes its evidence/report. It does not create worktrees, commit code, open pull requests, run multi-agent teams, or auto-loop through fixes.
 
 ## Commands
 
-- `/code-cruise "task"` — create a CruiseCode run and Evidence Contract.
+- `/code-cruise "task"` — create a CruiseCode run, launch implementation, track progress, verify, and report.
 - `/code-cruise --verify-only` — verify the current git diff with available checks.
 - `/code-cruise --resume` — show the active run.
 - `/code-cruise --handoff <file>` — create a run from `implementation-handoff.json`.
@@ -21,6 +21,7 @@ CruiseCode is intentionally not a full autonomous coding harness. It does not cr
 - `/code-check` — collect git evidence and run configured checks.
 - `/code-status` — show current run status.
 - `/code-report` — generate `report.md`.
+- `/code-panel hide|show|status` — control progress-panel visibility; terminal states auto-hide after 10 seconds.
 
 Each command supports `help`, `-h`, or `--help` where applicable.
 
@@ -106,7 +107,7 @@ CruiseCode should not add `/code-skill`, `/code-learn`, or automatic skill write
 
 Mods are trusted local code. Review the source before installing third-party mods.
 
-This mod performs local filesystem writes under the active project’s `.letta/cruise-code/` directory and runs local git/check commands when invoked by the user. It has no startup side effects and does not run background timers by itself.
+This mod performs local filesystem writes under the active project’s `.letta/cruise-code/` directory. After `/code-cruise` is invoked, it observes the bound run's tool/turn events and runs local git/check commands during automatic finalization. It has no startup side effects and does not run background timers by itself.
 
 If a mod breaks startup or command handling, recover with:
 

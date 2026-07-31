@@ -63,6 +63,8 @@ const RISK_KEYWORDS = ["auth", "login", "session", "token", "permission", "role"
 
 let panelHandle = null;
 let panelText = "";
+let panelState = null;
+let panelHideTimer = null;
 
 // ── Utilities ────────────────────────────────────────────────────────────────
 
@@ -255,6 +257,7 @@ function defaultConfig() {
     panel: {
       enabled: true,
       max_lines: 8,
+      auto_hide_terminal_ms: 10_000,
     },
   };
 }
@@ -269,7 +272,20 @@ function ensureStorage(cwd) {
 function loadConfig(cwd) {
   const p = ensureStorage(cwd);
   const loaded = readJson(p.config, {});
-  return { ...defaultConfig(), ...loaded, schema_version: loaded.schema_version ?? SCHEMA_VERSION };
+  const defaults = defaultConfig();
+  return {
+    ...defaults,
+    ...loaded,
+    checks: { ...defaults.checks, ...(loaded.checks || {}) },
+    risk_gates: { ...defaults.risk_gates, ...(loaded.risk_gates || {}) },
+    retention: { ...defaults.retention, ...(loaded.retention || {}) },
+    panel: { ...defaults.panel, ...(loaded.panel || {}) },
+    schema_version: loaded.schema_version ?? SCHEMA_VERSION,
+  };
+}
+
+function saveConfig(cwd, config) {
+  writeJson(ensureStorage(cwd).config, config);
 }
 
 function saveActive(cwd, runId) {
@@ -378,6 +394,18 @@ function createBaseRun(cwd, { title, task, mode = "standard", source = { type: "
       risk: "unknown",
     },
     blockers: [],
+    execution: {
+      status: "idle",
+      conversation_id: null,
+      agent_id: null,
+      started_at: null,
+      completed_at: null,
+      last_activity: null,
+      last_tool: null,
+      last_error: null,
+      finalization_status: "idle",
+      summary_continuation_sent_at: null,
+    },
     created_at: now(),
     updated_at: now(),
   };
@@ -641,6 +669,98 @@ function updateRunSummaryFromPlan(run, plan, evidenceIndex = null) {
   run.summary.evidence_collected = items.filter((item) => ["collected", "passed", "failed"].includes(item.status)).length;
 }
 
+function ensureExecution(run) {
+  run.execution = {
+    status: "idle",
+    conversation_id: null,
+    agent_id: null,
+    started_at: null,
+    completed_at: null,
+    last_activity: null,
+    last_tool: null,
+    last_error: null,
+    finalization_status: "idle",
+    summary_continuation_sent_at: null,
+    ...(run.execution || {}),
+  };
+  return run.execution;
+}
+
+function stepIndexForKind(plan, kind) {
+  return (plan?.steps || []).findIndex((step) => step.kind === kind);
+}
+
+function advancePlanToKind(plan, kind) {
+  const targetIndex = stepIndexForKind(plan, kind);
+  if (targetIndex < 0) return null;
+  for (let index = 0; index < targetIndex; index += 1) {
+    if (plan.steps[index].status !== "blocked") plan.steps[index].status = "done";
+  }
+  const target = plan.steps[targetIndex];
+  if (target.status !== "done" && target.status !== "blocked") target.status = "active";
+  for (let index = targetIndex + 1; index < plan.steps.length; index += 1) {
+    if (plan.steps[index].status === "active") plan.steps[index].status = "pending";
+  }
+  return target;
+}
+
+function completePlanThroughKind(plan, kind) {
+  const targetIndex = stepIndexForKind(plan, kind);
+  if (targetIndex < 0) return;
+  for (let index = 0; index <= targetIndex; index += 1) {
+    if (plan.steps[index].status !== "blocked") plan.steps[index].status = "done";
+  }
+}
+
+function startAgentExecution(cwd, run, plan, ctx) {
+  const execution = ensureExecution(run);
+  execution.status = "running";
+  execution.conversation_id = ctx.conversation?.id ?? null;
+  execution.agent_id = ctx.agent?.id ?? null;
+  execution.started_at = now();
+  execution.completed_at = null;
+  execution.last_activity = "Starting implementation agent";
+  execution.last_tool = null;
+  execution.last_error = null;
+  execution.finalization_status = "idle";
+  execution.summary_continuation_sent_at = null;
+  run.phase = "active";
+  const step = advancePlanToKind(plan, "map");
+  run.current_step_id = step?.id ?? null;
+  updateRunSummaryFromPlan(run, plan, loadEvidenceIndex(cwd, run.run_id));
+  savePlan(cwd, run.run_id, plan);
+  saveRun(cwd, run);
+  appendLedger(cwd, run, "execution_started", "Implementation agent started", {
+    conversation_id: execution.conversation_id,
+  });
+}
+
+function buildExecutionPrompt(cwd, run, plan) {
+  const criteria = (plan?.acceptance_criteria || []).map((criterion) => `- ${criterion.id}: ${criterion.text}`).join("\n") || "- Complete the requested task.";
+  const constraints = (plan?.constraints || []).map((constraint) => `- ${constraint}`).join("\n") || "- Preserve unrelated behavior.";
+  return [
+    `<cruisecode-run id="${run.run_id}">`,
+    "Execute this coding task now. Do not stop after planning and do not merely explain what should be changed.",
+    "",
+    `Workspace: ${cwd}`,
+    `Task: ${run.brief?.task || run.title}`,
+    "",
+    "Acceptance criteria:",
+    criteria,
+    "",
+    "Constraints:",
+    constraints,
+    "",
+    "Required workflow:",
+    "1. Inspect the relevant implementation and project guidance.",
+    "2. Edit the project files to implement the task.",
+    "3. Run the most relevant available checks and fix failures caused by the change.",
+    "4. Do not commit or push unless the user explicitly requested it.",
+    "5. Finish with a concise implementation summary. CruiseCode will collect final git/check evidence and generate the report when this turn ends.",
+    "</cruisecode-run>",
+  ].join("\n");
+}
+
 // ── Evidence and risk ────────────────────────────────────────────────────────
 
 function upsertEvidence(index, item) {
@@ -654,6 +774,11 @@ function upsertEvidence(index, item) {
 
 function evidencePath(cwd, runId, fileName) {
   return join(paths(cwd, runId).evidenceDir, fileName);
+}
+
+function isCruiseCodeStatePath(path) {
+  const normalized = String(path || "").replaceAll("\\", "/").replace(/^\.\//, "");
+  return normalized === ".letta/cruise-code" || normalized.startsWith(".letta/cruise-code/");
 }
 
 async function collectGitEvidence(cwd, run) {
@@ -672,26 +797,34 @@ async function collectGitEvidence(cwd, run) {
     exit_code: status.exitCode,
   });
 
-  const stat = await git(cwd, ["diff", "--stat"]);
+  const statWithHead = await git(cwd, ["diff", "--stat", "HEAD"]);
+  const stat = statWithHead.ok ? statWithHead : await git(cwd, ["diff", "--stat"]);
+  const untracked = await git(cwd, ["ls-files", "--others", "--exclude-standard"]);
+  const untrackedFiles = untracked.ok
+    ? untracked.stdout.split(/\r?\n/).map((item) => item.trim()).filter((item) => item && !isCruiseCodeStatePath(item))
+    : [];
+  const untrackedNote = untrackedFiles.length ? `\nUntracked files (contents intentionally omitted):\n${untrackedFiles.map((file) => `- ${file}`).join("\n")}\n` : "";
   writeText(evidencePath(cwd, run.run_id, "git-diff-stat.txt"), stat.ok ? stat.stdout : `${stat.stdout}\n${stat.stderr}\n${stat.errorMessage ?? ""}`.trim());
   upsertEvidence(index, {
     id: "ev-git-diff-stat",
     type: "git_diff_stat",
     path: "evidence/git-diff-stat.txt",
     status: stat.ok ? "collected" : "missing",
-    command: "git diff --stat",
+    command: statWithHead.ok ? "git diff --stat HEAD" : "git diff --stat",
     exit_code: stat.exitCode,
   });
 
-  const diff = await git(cwd, ["diff"]);
-  const diffText = diff.ok ? truncateText(diff.stdout, DEFAULT_DIFF_CAP_BYTES) : `${diff.stdout}\n${diff.stderr}\n${diff.errorMessage ?? ""}`.trim();
+  const diffWithHead = await git(cwd, ["diff", "HEAD"]);
+  const diff = diffWithHead.ok ? diffWithHead : await git(cwd, ["diff"]);
+  const hasChanges = Boolean(diff.stdout.trim() || untrackedFiles.length);
+  const diffText = diff.ok ? truncateText(`${diff.stdout}${untrackedNote}`, DEFAULT_DIFF_CAP_BYTES) : `${diff.stdout}\n${diff.stderr}\n${diff.errorMessage ?? ""}`.trim();
   writeText(evidencePath(cwd, run.run_id, "git-diff.patch"), diffText);
   upsertEvidence(index, {
     id: "ev-git-diff",
     type: "git_diff",
     path: "evidence/git-diff.patch",
-    status: diff.ok && diff.stdout.trim() ? "collected" : "missing",
-    command: "git diff",
+    status: diff.ok && hasChanges ? "collected" : "missing",
+    command: diffWithHead.ok ? "git diff HEAD" : "git diff",
     exit_code: diff.exitCode,
   });
 
@@ -703,9 +836,14 @@ async function collectGitEvidence(cwd, run) {
 }
 
 async function collectGitRisk(cwd) {
-  const nameOnly = await git(cwd, ["diff", "--name-only"]);
-  const numstat = await git(cwd, ["diff", "--numstat"]);
-  const changedFiles = nameOnly.ok ? nameOnly.stdout.split(/\r?\n/).map((x) => x.trim()).filter(Boolean) : [];
+  const nameOnlyWithHead = await git(cwd, ["diff", "--name-only", "HEAD"]);
+  const nameOnly = nameOnlyWithHead.ok ? nameOnlyWithHead : await git(cwd, ["diff", "--name-only"]);
+  const numstatWithHead = await git(cwd, ["diff", "--numstat", "HEAD"]);
+  const numstat = numstatWithHead.ok ? numstatWithHead : await git(cwd, ["diff", "--numstat"]);
+  const untracked = await git(cwd, ["ls-files", "--others", "--exclude-standard"]);
+  const trackedFiles = nameOnly.ok ? nameOnly.stdout.split(/\r?\n/).map((x) => x.trim()).filter((x) => x && !isCruiseCodeStatePath(x)) : [];
+  const untrackedFiles = untracked.ok ? untracked.stdout.split(/\r?\n/).map((x) => x.trim()).filter((x) => x && !isCruiseCodeStatePath(x)) : [];
+  const changedFiles = [...new Set([...trackedFiles, ...untrackedFiles])];
   let deletedLines = 0;
   if (numstat.ok) {
     for (const line of numstat.stdout.split(/\r?\n/)) {
@@ -816,11 +954,13 @@ async function runCheck(cwd, run, check) {
   return { check, result, status, failureType };
 }
 
-async function runAllChecks(cwd, run, plan) {
+async function runAllChecks(cwd, run, plan, onProgress = null) {
   const checks = Array.isArray(plan?.checks) ? plan.checks : [];
   const results = [];
   for (const check of checks) {
+    if (onProgress) await onProgress(`Running ${check.label}`);
     results.push(await runCheck(cwd, run, check));
+    if (onProgress) await onProgress(`${check.label} ${results.at(-1).status}`);
   }
   return results;
 }
@@ -892,9 +1032,12 @@ function sourceLabel(run) {
 
 function nextAction(run, plan, evidenceIndex) {
   if (!run) return "/code-cruise \"task\"";
+  if (run.execution?.status === "running") return "working automatically";
+  if (run.execution?.status === "verifying") return "collecting evidence";
+  if (run.execution?.status === "failed") return "/code-status";
   if (run.phase === "blocked") return "resolve blocker, then /code-check";
   if (run.phase === "draft") return "/code-plan";
-  if (run.phase === "planned") return "implement, then /code-check";
+  if (run.phase === "planned") return "/code-cruise --resume";
   if (run.phase === "active") return "/code-check";
   if (run.phase === "checking") {
     if (run.verdict === "needs_work") return "fix failure, then /code-check";
@@ -915,7 +1058,7 @@ function renderPanelLines(run, plan, evidenceIndex, width = 48) {
   const stepsDone = run?.summary?.steps_done ?? 0;
   const phase = `${PHASE_LABELS[run?.phase] || run?.phase || "Brief"} · step ${stepsDone}/${stepsTotal}`;
   const current = plan?.steps?.find((step) => step.id === run?.current_step_id) || plan?.steps?.find((step) => step.status === "active") || plan?.steps?.find((step) => step.status === "pending");
-  const nowLine = current?.title || (run?.phase === "closed" ? "Report ready" : run?.phase === "planned" ? "Evidence Contract ready" : "Capture coding task");
+  const nowLine = run?.execution?.last_activity || current?.title || (run?.phase === "closed" ? "Report ready" : run?.phase === "planned" ? "Evidence Contract ready" : "Capture coding task");
   const proof = `diff ${proofSymbol(evidenceIndex, "git_diff")}  typecheck ${proofSymbol(evidenceIndex, "typecheck_output")}  test ${proofSymbol(evidenceIndex, "test_output")}`;
   const verdict = `${VERDICT_LABELS[run?.verdict] || run?.verdict || "unreviewed"} · risk ${run?.summary?.risk || "unknown"}`;
   const lines = [
@@ -940,20 +1083,57 @@ function renderPanelText(run, plan, evidenceIndex, width = 48) {
   return renderPanelLines(run, plan, evidenceIndex, width).join("\n");
 }
 
+function cancelPanelAutoHide() {
+  if (!panelHideTimer) return;
+  clearTimeout(panelHideTimer);
+  panelHideTimer = null;
+}
+
+function closePanel() {
+  cancelPanelAutoHide();
+  if (!panelHandle) return;
+  panelHandle.close();
+  panelHandle = null;
+}
+
+function schedulePanelAutoHide(run, config) {
+  cancelPanelAutoHide();
+  if (!["closed", "blocked", "cancelled"].includes(run?.phase)) return;
+  const delay = Number(config?.panel?.auto_hide_terminal_ms);
+  if (!Number.isFinite(delay) || delay <= 0) return;
+  panelHideTimer = setTimeout(() => {
+    panelHideTimer = null;
+    if (panelHandle) {
+      panelHandle.close();
+      panelHandle = null;
+    }
+  }, delay);
+  panelHideTimer.unref?.();
+}
+
 function updatePanel(letta, run, plan, evidenceIndex) {
+  panelState = { run, plan, evidenceIndex };
   panelText = renderPanelText(run, plan, evidenceIndex, 54);
+  const cwd = run?.workspace?.cwd || process.cwd();
+  const config = loadConfig(cwd);
+  if (!config.panel.enabled) {
+    closePanel();
+    return;
+  }
   if (!letta.capabilities?.ui?.panels) return;
   if (!panelHandle) {
     panelHandle = letta.ui.openPanel({
       id: PANEL_ID,
       order: 100,
-      render() {
-        return panelText.split("\n").slice(0, 8);
+      render({ width } = {}) {
+        if (!panelState) return "";
+        return renderPanelLines(panelState.run, panelState.plan, panelState.evidenceIndex, width || 54).slice(0, 8);
       },
     });
   } else {
     panelHandle.update();
   }
+  schedulePanelAutoHide(run, config);
 }
 
 function formatStatus(cwd, run, plan, evidenceIndex) {
@@ -1245,22 +1425,58 @@ async function initializeRunFromHandoff(cwd, handoffPath, handoff) {
   return { run, plan, evidenceIndex: loadEvidenceIndex(cwd, run.run_id) };
 }
 
-async function runCheckFlow(cwd, run, plan) {
+function launchImplementation(letta, ctx, cwd, run, plan, evidenceIndex) {
+  if (unresolvedBlockers(run).length) {
+    updatePanel(letta, run, plan, evidenceIndex);
+    return output(`${panelText}\n\nCruiseCode did not start implementation because the run is blocked.\n${unresolvedBlockers(run).map((blocker) => `- ${blocker.reason}`).join("\n")}`);
+  }
+  startAgentExecution(cwd, run, plan, ctx);
+  const currentEvidence = loadEvidenceIndex(cwd, run.run_id);
+  updatePanel(letta, run, plan, currentEvidence);
+  return {
+    type: "prompt",
+    systemReminder: true,
+    content: buildExecutionPrompt(cwd, run, plan),
+  };
+}
+
+async function runCheckFlow(cwd, run, plan, onProgress = null) {
+  const execution = ensureExecution(run);
+  const automatic = execution.finalization_status === "running";
+  if (automatic) {
+    execution.status = "verifying";
+    execution.last_activity = "Collecting git evidence";
+  }
   run.phase = "checking";
   saveRun(cwd, run);
   appendLedger(cwd, run, "phase_changed", "Phase changed to checking", { to: "checking" });
+  if (onProgress) await onProgress(automatic ? execution.last_activity : "Collecting git evidence", run, plan, loadEvidenceIndex(cwd, run.run_id));
 
   let evidenceIndex = await collectGitEvidence(cwd, run);
-  await runAllChecks(cwd, run, plan);
+  if (onProgress) await onProgress("Git evidence collected", run, plan, evidenceIndex);
+  await runAllChecks(cwd, run, plan, async (activity) => {
+    if (automatic) execution.last_activity = activity;
+    saveRun(cwd, run);
+    if (onProgress) await onProgress(activity, run, plan, loadEvidenceIndex(cwd, run.run_id));
+  });
   evidenceIndex = loadEvidenceIndex(cwd, run.run_id);
 
+  if (automatic) execution.last_activity = "Evaluating evidence";
+  if (onProgress) await onProgress("Evaluating evidence", run, plan, evidenceIndex);
   const risk = await collectGitRisk(cwd);
   addBlockersFromRisk(cwd, run, risk);
   const verdictResult = calculateVerdict(run, plan, evidenceIndex);
   run.verdict = verdictResult.verdict;
   if (unresolvedBlockers(run).length) run.phase = "blocked";
+  completePlanThroughKind(plan, "check");
+  savePlan(cwd, run.run_id, plan);
+  if (!automatic) {
+    execution.status = "idle";
+    execution.last_activity = null;
+  }
   updateRunSummaryFromPlan(run, plan, evidenceIndex);
   saveRun(cwd, run);
+  if (onProgress) await onProgress("Evidence evaluation complete", run, plan, evidenceIndex);
   return { run, plan, evidenceIndex, risk, verdictResult };
 }
 
@@ -1276,8 +1492,12 @@ async function handleCodeCruise(letta, ctx) {
     if (!run) return output("No active CruiseCode run. Start one with `/code-cruise \"task\"`.");
     const plan = loadPlan(cwd, run.run_id);
     const evidenceIndex = loadEvidenceIndex(cwd, run.run_id);
-    updatePanel(letta, run, plan, evidenceIndex);
-    return output(`${panelText}\n\n${formatStatus(cwd, run, plan, evidenceIndex)}`);
+    if (!plan) return output("Active run has no plan.json. Run `/code-plan` first.");
+    if (run.phase === "closed") {
+      updatePanel(letta, run, plan, evidenceIndex);
+      return output(`${panelText}\n\n${formatStatus(cwd, run, plan, evidenceIndex)}`);
+    }
+    return launchImplementation(letta, ctx, cwd, run, plan, evidenceIndex);
   }
 
   if (input === "--verify-only") {
@@ -1291,16 +1511,14 @@ async function handleCodeCruise(letta, ctx) {
     const file = input.replace(/^--handoff\s+/, "").trim();
     const { path, handoff } = readHandoffFile(cwd, file);
     const result = await initializeRunFromHandoff(cwd, path, handoff);
-    updatePanel(letta, result.run, result.plan, result.evidenceIndex);
-    return output(`${panelText}\n\nCruiseCode run created from handoff.\nRun: ${result.run.run_id}\nNext: ${nextAction(result.run, result.plan, result.evidenceIndex)}`);
+    return launchImplementation(letta, ctx, cwd, result.run, result.plan, result.evidenceIndex);
   }
 
   if (input.startsWith("--from-ux ")) {
     const uxRunId = input.replace(/^--from-ux\s+/, "").trim();
     const { path, handoff } = resolveHandoffFromUx(cwd, uxRunId);
     const result = await initializeRunFromHandoff(cwd, path, handoff);
-    updatePanel(letta, result.run, result.plan, result.evidenceIndex);
-    return output(`${panelText}\n\nCruiseCode run created from CruiseUX handoff.\nRun: ${result.run.run_id}\nNext: ${nextAction(result.run, result.plan, result.evidenceIndex)}`);
+    return launchImplementation(letta, ctx, cwd, result.run, result.plan, result.evidenceIndex);
   }
 
   if (input.startsWith("--auto") || input.startsWith("--loop")) {
@@ -1309,19 +1527,7 @@ async function handleCodeCruise(letta, ctx) {
 
   const task = stripWrappingQuotes(input);
   const result = await initializeRunFromTask(cwd, task);
-  updatePanel(letta, result.run, result.plan, result.evidenceIndex);
-  return output([
-    panelText,
-    "",
-    "CruiseCode run created.",
-    `Run: ${result.run.run_id}`,
-    `Phase: ${result.run.phase}`,
-    `Verdict: ${result.run.verdict}`,
-    `Checks: ${result.plan.checks.length ? result.plan.checks.map((c) => `${c.id}${c.required ? "*" : ""}`).join(", ") : "none detected"}`,
-    "",
-    "Next:",
-    nextAction(result.run, result.plan, result.evidenceIndex),
-  ].join("\n"));
+  return launchImplementation(letta, ctx, cwd, result.run, result.plan, result.evidenceIndex);
 }
 
 async function handleCodePlan(letta, ctx) {
@@ -1392,17 +1598,23 @@ async function handleCodeStatus(letta, ctx) {
   return output(`${panelText}\n\n${formatStatus(cwd, run, plan, evidenceIndex)}`);
 }
 
-async function handleCodeReport(letta, ctx) {
-  const cwd = normalizeCwd(ctx.cwd);
-  const run = loadActiveRun(cwd);
-  if (!run) return output("No active CruiseCode run. Start one with `/code-cruise \"task\"`.");
-  const plan = loadPlan(cwd, run.run_id);
-  if (!plan) return output("Active run has no plan.json. Run `/code-plan` first.");
-  const evidenceIndex = loadEvidenceIndex(cwd, run.run_id);
+function finalizeRunReport(cwd, run, plan, evidenceIndex) {
   const verdictResult = calculateVerdict(run, plan, evidenceIndex);
+  const execution = ensureExecution(run);
   run.verdict = verdictResult.verdict;
   if (!unresolvedBlockers(run).length) run.phase = "closed";
+  execution.status = "complete";
+  execution.completed_at = now();
+  execution.last_activity = "Report ready";
+  completePlanThroughKind(plan, "report");
+  if (stepIndexForKind(plan, "report") < 0) {
+    for (const step of plan.steps || []) {
+      if (step.status !== "blocked") step.status = "done";
+    }
+  }
+  run.current_step_id = null;
   updateRunSummaryFromPlan(run, plan, evidenceIndex);
+  savePlan(cwd, run.run_id, plan);
   saveRun(cwd, run);
   const lessonExport = buildLessonCandidates(cwd, run, plan, evidenceIndex, verdictResult);
   writeJson(paths(cwd, run.run_id).lessonCandidates, lessonExport);
@@ -1414,19 +1626,204 @@ async function handleCodeReport(letta, ctx) {
     lesson_candidates: lessonExport.candidates.length,
     verdict: run.verdict,
   });
-  updatePanel(letta, run, plan, evidenceIndex);
-  const reportPath = paths(cwd, run.run_id).report;
+  return { run, plan, evidenceIndex, verdictResult, lessonExport, reportPath: paths(cwd, run.run_id).report };
+}
+
+async function handleCodeReport(letta, ctx) {
+  const cwd = normalizeCwd(ctx.cwd);
+  const run = loadActiveRun(cwd);
+  if (!run) return output("No active CruiseCode run. Start one with `/code-cruise \"task\"`.");
+  const plan = loadPlan(cwd, run.run_id);
+  if (!plan) return output("Active run has no plan.json. Run `/code-plan` first.");
+  const evidenceIndex = loadEvidenceIndex(cwd, run.run_id);
+  const finalized = finalizeRunReport(cwd, run, plan, evidenceIndex);
+  updatePanel(letta, finalized.run, finalized.plan, finalized.evidenceIndex);
   return output([
     panelText,
     "",
     "CruiseCode Report created.",
-    `Status: ${run.verdict}`,
-    `Report: ${reportPath}`,
+    `Status: ${finalized.run.verdict}`,
+    `Report: ${finalized.reportPath}`,
     `Lesson candidates: ${paths(cwd, run.run_id).lessonCandidates}`,
     "",
     "Next:",
-    nextAction(run, plan, evidenceIndex),
+    nextAction(finalized.run, finalized.plan, finalized.evidenceIndex),
   ].join("\n"));
+}
+
+function eventMatchesExecution(run, event, ctx) {
+  const execution = ensureExecution(run);
+  if (!["running", "verifying"].includes(execution.status)) return false;
+  if (execution.conversation_id && execution.conversation_id !== (event.conversationId ?? ctx.conversation?.id ?? null)) return false;
+  if (execution.agent_id && execution.agent_id !== (event.agentId ?? ctx.agent?.id ?? null)) return false;
+  return true;
+}
+
+function toolCommandText(event) {
+  const args = event?.args || {};
+  return String(args.cmd ?? args.command ?? args.description ?? "");
+}
+
+function classifyToolActivity(event) {
+  const name = String(event?.toolName || "").toLowerCase();
+  const command = toolCommandText(event).toLowerCase();
+  if (/applypatch|apply_patch|\bedit\b|\bwrite\b/.test(name)) {
+    return { kind: "edit", label: `Editing with ${event.toolName}` };
+  }
+  if (/exec|bash|shell|command/.test(name)) {
+    if (/\b(test|typecheck|type-check|lint|build|check|vitest|jest|playwright|pytest|tsc)\b/.test(command)) {
+      return { kind: "check", label: short(event.args?.description || command || event.toolName, 52) };
+    }
+    return { kind: "map", label: short(event.args?.description || command || event.toolName, 52) };
+  }
+  if (/read|glob|grep|search|agent|view|fetch/.test(name)) {
+    return { kind: "map", label: short(event.args?.description || event.toolName, 52) };
+  }
+  return { kind: null, label: short(event.args?.description || event.toolName || "Working", 52) };
+}
+
+function handleExecutionToolStart(letta, event, ctx) {
+  const cwd = normalizeCwd(ctx.cwd);
+  const run = loadActiveRun(cwd);
+  if (!run || !eventMatchesExecution(run, event, ctx)) return;
+  const plan = loadPlan(cwd, run.run_id);
+  if (!plan) return;
+  const activity = classifyToolActivity(event);
+  const execution = ensureExecution(run);
+  execution.last_tool = event.toolName;
+  execution.last_activity = activity.label;
+  if (activity.kind) {
+    const step = advancePlanToKind(plan, activity.kind);
+    run.current_step_id = step?.id ?? run.current_step_id;
+  }
+  updateRunSummaryFromPlan(run, plan, loadEvidenceIndex(cwd, run.run_id));
+  savePlan(cwd, run.run_id, plan);
+  saveRun(cwd, run);
+  appendLedger(cwd, run, "tool_started", `${event.toolName} started`, {
+    tool_call_id: event.toolCallId ?? null,
+    tool_name: event.toolName,
+    activity_kind: activity.kind,
+  });
+  updatePanel(letta, run, plan, loadEvidenceIndex(cwd, run.run_id));
+}
+
+function handleExecutionToolEnd(letta, event, ctx) {
+  const cwd = normalizeCwd(ctx.cwd);
+  const run = loadActiveRun(cwd);
+  if (!run || !eventMatchesExecution(run, event, ctx)) return;
+  const plan = loadPlan(cwd, run.run_id);
+  if (!plan) return;
+  const execution = ensureExecution(run);
+  if (event.status === "error") {
+    execution.last_error = short(event.output || `${event.toolName} failed`, 240);
+    execution.last_activity = `${event.toolName} failed; agent can recover`;
+  } else {
+    execution.last_activity = `${event.toolName} complete`;
+  }
+  saveRun(cwd, run);
+  appendLedger(cwd, run, "tool_finished", `${event.toolName} ${event.status}`, {
+    tool_call_id: event.toolCallId ?? null,
+    tool_name: event.toolName,
+    status: event.status,
+  });
+  updatePanel(letta, run, plan, loadEvidenceIndex(cwd, run.run_id));
+}
+
+function finalSummaryContinuation(finalized) {
+  return [
+    `<cruisecode-final run-id="${finalized.run.run_id}">`,
+    "CruiseCode finished automatic evidence collection and report generation for the coding task from the previous turn.",
+    `Verdict: ${finalized.run.verdict}`,
+    `Reason: ${finalized.verdictResult.reason}`,
+    `Report: ${finalized.reportPath}`,
+    "Give the user the final result now. Do not restart implementation. Summarize what changed, which checks passed or failed, the verdict, and any remaining caveat. Keep it concise and truthful.",
+    "</cruisecode-final>",
+  ].join("\n");
+}
+
+async function handleExecutionTurnEnd(letta, event, ctx) {
+  const cwd = normalizeCwd(ctx.cwd);
+  const run = loadActiveRun(cwd);
+  if (!run || !eventMatchesExecution(run, event, ctx)) return;
+  const plan = loadPlan(cwd, run.run_id);
+  if (!plan) return;
+  const execution = ensureExecution(run);
+  if (execution.finalization_status !== "idle" || execution.summary_continuation_sent_at) return;
+
+  execution.finalization_status = "running";
+  execution.status = "verifying";
+  execution.last_activity = "Starting automatic verification";
+  saveRun(cwd, run);
+  appendLedger(cwd, run, "finalization_started", "Automatic verification started", {
+    stop_reason: event.stopReason ?? null,
+  });
+  updatePanel(letta, run, plan, loadEvidenceIndex(cwd, run.run_id));
+
+  try {
+    const checked = await runCheckFlow(cwd, run, plan, async (_activity, currentRun, currentPlan, currentEvidence) => {
+      updatePanel(letta, currentRun, currentPlan, currentEvidence);
+    });
+    const finalized = finalizeRunReport(cwd, checked.run, checked.plan, checked.evidenceIndex);
+    const finalizedExecution = ensureExecution(finalized.run);
+    finalizedExecution.finalization_status = "complete";
+    finalizedExecution.summary_continuation_sent_at = now();
+    saveRun(cwd, finalized.run);
+    updatePanel(letta, finalized.run, finalized.plan, finalized.evidenceIndex);
+    return { continue: finalSummaryContinuation(finalized) };
+  } catch (error) {
+    const failedRun = loadRunById(cwd, run.run_id) || run;
+    const failedExecution = ensureExecution(failedRun);
+    failedExecution.status = "failed";
+    failedExecution.finalization_status = "complete";
+    failedExecution.completed_at = now();
+    failedExecution.summary_continuation_sent_at = now();
+    failedExecution.last_error = error?.message || String(error);
+    failedExecution.last_activity = "Automatic verification failed";
+    failedRun.phase = "blocked";
+    saveRun(cwd, failedRun);
+    appendLedger(cwd, failedRun, "finalization_failed", "Automatic verification failed", {
+      error: failedExecution.last_error,
+    });
+    updatePanel(letta, failedRun, plan, loadEvidenceIndex(cwd, failedRun.run_id));
+    return {
+      continue: `CruiseCode implementation turn ended, but automatic verification failed: ${failedExecution.last_error}. Tell the user what was implemented and that they can run /code-check to retry verification.`,
+    };
+  }
+}
+
+async function handleCodePanel(letta, ctx) {
+  const cwd = normalizeCwd(ctx.cwd);
+  const action = String(ctx.args || "status").trim().toLowerCase() || "status";
+  const config = loadConfig(cwd);
+
+  if (["hide", "off"].includes(action)) {
+    config.panel.enabled = false;
+    saveConfig(cwd, config);
+    closePanel();
+    return output("CruiseCode panel hidden for this project. Run `/code-panel show` to restore it.");
+  }
+
+  if (["show", "on"].includes(action)) {
+    config.panel.enabled = true;
+    saveConfig(cwd, config);
+    const run = loadActiveRun(cwd);
+    if (!run) return output("CruiseCode panel enabled. It will appear when a run starts.");
+    const plan = loadPlan(cwd, run.run_id);
+    const evidenceIndex = loadEvidenceIndex(cwd, run.run_id);
+    updatePanel(letta, run, plan, evidenceIndex);
+    return output("CruiseCode panel shown. Terminal states auto-hide after 10 seconds.");
+  }
+
+  if (["status", "help", "-h", "--help"].includes(action)) {
+    const state = config.panel.enabled ? "shown" : "hidden";
+    return output([
+      `CruiseCode panel: ${state}`,
+      `Terminal auto-hide: ${config.panel.auto_hide_terminal_ms}ms`,
+      "Use `/code-panel hide` or `/code-panel show`.",
+    ].join("\n"));
+  }
+
+  return output("Usage: `/code-panel hide`, `/code-panel show`, or `/code-panel status`.");
 }
 
 function output(text) {
@@ -1438,14 +1835,15 @@ function helpText() {
     "CruiseCode — evidence-first coding workflow mod",
     "",
     "Commands:",
-    "  /code-cruise \"task\"        Create a run and Evidence Contract",
+    "  /code-cruise \"task\"        Implement, track, verify, and report a coding task",
     "  /code-cruise --verify-only   Verify current git diff with checks",
-    "  /code-cruise --resume        Show active run",
-    "  /code-cruise --handoff <file> Create a run from implementation-handoff.json",
+    "  /code-cruise --resume        Resume implementation for the active run",
+    "  /code-cruise --handoff <file> Implement from implementation-handoff.json",
     "  /code-plan [task]            Create/update the Evidence Contract",
     "  /code-check                  Collect git/check evidence",
     "  /code-status                 Show run status",
     "  /code-report                 Generate report.md",
+    "  /code-panel hide|show|status Control the progress panel",
     "",
     "State:",
     "  <cwd>/.letta/cruise-code/",
@@ -1472,11 +1870,12 @@ export default function activate(letta) {
 
   if (letta.capabilities?.commands) {
     const commands = [
-      { id: "code-cruise", description: "Create, resume, or verify a CruiseCode evidence-first coding run", args: "\"task\"|--verify-only|--resume|--handoff <file>", run: handleCodeCruise },
+      { id: "code-cruise", description: "Implement, track, verify, or resume a CruiseCode evidence-first coding run", args: "\"task\"|--verify-only|--resume|--handoff <file>", run: handleCodeCruise },
       { id: "code-plan", description: "Create or update the active CruiseCode Evidence Contract", args: "[task]", run: handleCodePlan },
       { id: "code-check", description: "Collect git diff and configured check evidence for the active CruiseCode run", args: "", run: handleCodeCheck },
       { id: "code-status", description: "Show the active CruiseCode run status", args: "[run-id]", run: handleCodeStatus },
       { id: "code-report", description: "Generate the active CruiseCode verification report", args: "", run: handleCodeReport },
+      { id: "code-panel", description: "Hide, show, or inspect the CruiseCode progress panel", args: "hide|show|status", run: handleCodePanel },
     ];
 
     for (const command of commands) {
@@ -1493,11 +1892,19 @@ export default function activate(letta) {
     }
   }
 
+  if (letta.capabilities?.events?.tools) {
+    disposers.push(letta.events.on("tool_start", (event, ctx) => handleExecutionToolStart(letta, event, ctx)));
+    disposers.push(letta.events.on("tool_end", (event, ctx) => handleExecutionToolEnd(letta, event, ctx)));
+  }
+
+  if (letta.capabilities?.events?.turns) {
+    disposers.push(letta.events.on("turn_end", (event, ctx) => handleExecutionTurnEnd(letta, event, ctx)));
+  }
+
   return () => {
-    if (panelHandle) {
-      panelHandle.close();
-      panelHandle = null;
-    }
+    closePanel();
+    panelState = null;
+    panelText = "";
     for (const dispose of disposers.reverse()) dispose();
   };
 }
