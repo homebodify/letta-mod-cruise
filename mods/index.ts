@@ -1622,13 +1622,13 @@ function buildPrototypeEvidenceMatrix(run, plan, evidenceIndex) {
       dimension: "Interaction",
       evidence: "none",
       result: "not_assessed",
-      limitation: "P0 does not infer browser interaction evidence from generic tests.",
+      limitation: "CruiseCode does not infer browser interaction evidence from generic tests.",
     },
     {
       dimension: "Visual",
       evidence: "none",
       result: "not_assessed",
-      limitation: "No visual reference or screenshot comparison is collected in P0.",
+      limitation: "No visual reference or screenshot comparison is collected by CruiseCode.",
     },
     {
       dimension: "State coverage",
@@ -1640,7 +1640,7 @@ function buildPrototypeEvidenceMatrix(run, plan, evidenceIndex) {
       dimension: "Accessibility",
       evidence: "none",
       result: "not_assessed",
-      limitation: "Automated or manual accessibility review is not integrated in P0.",
+      limitation: "Automated or manual accessibility review is not integrated in this version.",
     },
     {
       dimension: "Human evidence",
@@ -2046,7 +2046,7 @@ async function handleCodeCruise(letta, ctx) {
 
   if (input === "--verify-only") {
     if (isPrototype) {
-      return output("`--prototype` cannot be combined with `--verify-only` in P0. Start a task or handoff so CruiseCode can write a Prototype Review Packet.");
+      return output("`--prototype` cannot be combined with `--verify-only`. Start a task or handoff so CruiseCode can write a Prototype Review Packet.");
     }
     const result = await initializeRunFromTask(cwd, "Verify current git changes", "verify_only", { type: "verify_only" });
     const checked = await runCheckFlow(cwd, result.run, result.plan);
@@ -2487,6 +2487,7 @@ function helpText() {
     "Commands:",
     "  /code-cruise \"task\"        Implement, track, verify, and report a coding task",
     "  /code-cruise --prototype \"task\"  Implement a prototype with unverified direct-task UX input",
+    "  /code-cruise --mode prototype \"task\"  Alias for --prototype",
     "  /code-cruise --prototype --handoff <file>  Implement a prototype from a read-only external handoff",
     "  /code-cruise --verify-only   Verify current git diff with checks",
     "  /code-cruise --resume        Resume implementation for the active run",
@@ -2522,7 +2523,7 @@ export default function activate(letta) {
 
   if (letta.capabilities?.commands) {
     const commands = [
-      { id: "code-cruise", description: "Implement, track, verify, or resume a CruiseCode evidence-first coding run", args: "\"task\"|--prototype \"task\"|--prototype --handoff <file>|--verify-only|--resume|--handoff <file>", run: handleCodeCruise },
+      { id: "code-cruise", description: "Implement, track, verify, or resume a CruiseCode evidence-first coding run", args: "\"task\"|--prototype \"task\"|--mode prototype \"task\"|--prototype --handoff <file>|--verify-only|--resume|--handoff <file>", run: handleCodeCruise },
       { id: "code-plan", description: "Create or update the active CruiseCode Evidence Contract", args: "[task]", run: handleCodePlan },
       { id: "code-check", description: "Collect git diff and configured check evidence for the active CruiseCode run", args: "", run: handleCodeCheck },
       { id: "code-status", description: "Show the active CruiseCode run status", args: "[run-id]", run: handleCodeStatus },

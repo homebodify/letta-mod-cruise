@@ -1,6 +1,6 @@
 ---
 name: CruiseCode
-description: Evidence-first coding workflow that executes implementation tasks and UX handoffs with live progress, checks, verdicts, and reports.
+description: Evidence-first coding workflow that executes implementation tasks and bounded prototypes with live progress, checks, verdicts, reports, and portable review packets.
 ---
 
 # CruiseCode Mod
@@ -14,6 +14,9 @@ CruiseCode runs one foreground coding-agent turn and automatically finalizes its
 ## Commands
 
 - `/code-cruise "task"` — create a CruiseCode run, launch implementation, track progress, verify, and report.
+- `/code-cruise --prototype "task"` — create a prototype run from unverified direct-task UX input.
+- `/code-cruise --mode prototype "task"` — alias for `--prototype`.
+- `/code-cruise --prototype --handoff <file>` — create a prototype run from a read-only external or CruiseUX handoff.
 - `/code-cruise --verify-only` — verify the current git diff with available checks.
 - `/code-cruise --resume` — show the active run.
 - `/code-cruise --handoff <file>` — create a run from `implementation-handoff.json`.
@@ -44,6 +47,15 @@ verdict = what the evidence says about trust/completion
 
 This allows a run to be closed but still not verified.
 
+### Prototype mode
+
+Prototype mode collects implementation evidence and writes a portable review packet without making a UX or product decision.
+
+- Direct tasks are marked `ux_intent_status: unverified` and can only make technical-evidence claims.
+- Valid external or CruiseUX handoffs are read-only inputs; inherited criterion references remain traceable as `ux_ref` values.
+- Prototype verdicts are distinct from standard verification: `prototype_evidence_incomplete`, `prototype_ready_for_review`, `prototype_evidence_collected_with_caveats`, `review_packet_ready`, and `promotion_blocked`.
+- Prototype mode does not invent UX criteria or user scenarios. A human or separate UX workflow interprets the review packet.
+
 ## Project-local state
 
 State is written under the current working directory:
@@ -53,6 +65,8 @@ State is written under the current working directory:
 ```
 
 This includes run metadata, the Evidence Contract, append-only ledger events, latest evidence snapshots, and `report.md`.
+
+Prototype runs also write `prototype-contract.json`, `prototype-review-packet.md`, and `prototype-review-packet.json` alongside the normal report.
 
 `/code-report` also writes `lesson-candidates.json`. This file is a boundary artifact for `muscle-memory`: CruiseCode may suggest reusable lesson candidates from the evidence chain, but it does not create, update, sanitize, graduate, or publish skills.
 
@@ -82,15 +96,15 @@ CruiseCode can collect:
 
 Evidence files are latest snapshots. The ledger records event summaries.
 
-## CruiseUX handoff
+## CruiseUX and external handoffs
 
-CruiseCode is designed to pair with CruiseUX. The intended handoff file is:
+CruiseUX is an optional upstream producer, not a runtime dependency. CruiseCode can consume any valid external handoff file with the same schema:
 
 ```text
 implementation-handoff.json
 ```
 
-When a handoff includes UX acceptance criteria such as `ux-ac-001`, CruiseCode preserves that original reference as `ux_ref` in the implementation plan.
+When a handoff includes UX acceptance criteria such as `ux-ac-001`, CruiseCode preserves that original reference as a read-only `ux_ref` in the implementation plan and prototype review packet.
 
 ## muscle-memory boundary
 

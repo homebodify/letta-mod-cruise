@@ -15,6 +15,8 @@ No evidence → no verified
 | Command | Purpose | Best used when |
 | --- | --- | --- |
 | `/code-cruise "task"` | 코딩 에이전트 실행, 진행 추적, 결과 검증, 보고서 생성 | CruiseCode가 작업을 처음부터 끝까지 구현해야 할 때 |
+| `/code-cruise --prototype "task"`<br>`/code-cruise --mode prototype "task"` | direct task로 범위가 정해진 prototype을 만들고 portable review packet 생성 | UX handoff 없이 technical prototype evidence가 필요할 때 |
+| `/code-cruise --prototype --handoff <file>` | read-only implementation handoff에서 prototype 생성 | 이미 UX criterion을 갖고 있고 구현 evidence로 추적해야 할 때 |
 | `/code-cruise --verify-only` | 현재 git diff를 가능한 check로 검증 | 이미 수정한 코드의 evidence/report가 필요할 때 |
 | `/code-cruise --resume` | active run 표시 | 현재 run을 이어가거나 확인할 때 |
 | `/code-cruise --handoff <file>` | `implementation-handoff.json`에서 run 생성 | UX/product handoff에서 이어갈 때 |
@@ -57,6 +59,22 @@ Run이 `Closed`, `Blocked`, `Cancelled`에 도달하면 패널은 10초 뒤 자�
 
 자동 finalization은 구현 turn 종료 시 한 번만 실행됩니다. staged/unstaged 변경을 수집하고, untracked file은 내용 복사 없이 이름만 기록하며, 감지된 check를 실행하고, report를 만든 뒤 최종 요약 turn을 한 번 보냅니다. 사용자가 명시적으로 요청하지 않는 한 CruiseCode는 commit이나 push를 지시하지 않습니다.
 
+## Prototype evidence mode
+
+Prototype mode는 CruiseCode를 또 하나의 prompt-to-app generator로 넓히지 않고, 구현 evidence를 정리하는 데 집중하게 합니다.
+
+```text
+/code-cruise --prototype "Build a scan-to-capture prototype"
+/code-cruise --mode prototype "Build a scan-to-capture prototype"  # alias
+/code-cruise --prototype --handoff implementation-handoff.json
+```
+
+- **Direct task:** CruiseCode는 `ux_intent_status: unverified`를 기록하고 요청한 prototype을 구현한 뒤 technical evidence만 보고합니다. UX가 검증됐다고 주장하지 않습니다.
+- **Handoff:** 유효한 external 또는 CruiseUX `implementation-handoff.json`은 read-only로 다룹니다. 전달받은 criterion reference를 보존하고 coverage를 기록한 뒤 review packet을 만듭니다.
+- **Boundary:** CruiseCode는 UX criterion을 새로 만들거나 user scenario를 발명하거나 UX/product decision을 내리지 않습니다. 사람 또는 별도 UX workflow가 결과 evidence를 해석합니다.
+
+Prototype mode는 `prototype-contract.json`을 남기고, 일반 report 옆에 portable `prototype-review-packet.md`와 `prototype-review-packet.json`을 생성합니다. `--verify-only`는 standard run용 명령이므로 `--prototype`과 함께 쓸 수 없습니다.
+
 ## 저장 구조
 
 CruiseCode는 현재 작업 디렉토리 기준으로 project-local state를 저장합니다.
@@ -69,6 +87,7 @@ CruiseCode는 현재 작업 디렉토리 기준으로 project-local state를 저
     <run-id>/
       run.json
       plan.json
+      prototype-contract.json       # prototype run에서만 생성
       ledger.jsonl
       evidence/
         index.json
@@ -80,6 +99,8 @@ CruiseCode는 현재 작업 디렉토리 기준으로 project-local state를 저
         lint.txt
         build.txt
       report.md
+      prototype-review-packet.md    # prototype run에서만 생성
+      prototype-review-packet.json  # prototype run에서만 생성
       lesson-candidates.json
 ```
 
@@ -146,9 +167,9 @@ rm -rf "$tmp"
 npm pack --dry-run
 ```
 
-## CruiseUX handoff
+## CruiseUX와 external handoff
 
-CruiseCode는 CruiseUX와 함께 쓰이도록 설계됐습니다.
+CruiseUX는 유용한 upstream producer이지만 runtime dependency는 아닙니다. CruiseCode는 유효한 external `implementation-handoff.json`도 읽을 수 있습니다.
 
 ```text
 CruiseUX   → UX framing, research, interview, ideation, spec, review
@@ -161,7 +182,7 @@ CruiseCode → implementation, evidence, checks, verdict, report
 implementation-handoff.json
 ```
 
-CruiseCode는 `ux-ac-001` 같은 원래 UX acceptance criteria를 `ux_ref`로 보존해서, report에서 UX 의도와 구현 evidence를 연결할 수 있게 합니다.
+Prototype handoff에서는 CruiseCode가 `ux-ac-001` 같은 원래 UX acceptance criteria를 read-only `ux_ref`로 보존합니다. 그래서 UX verdict를 주장하지 않으면서 review packet에서 UX 의도와 구현 evidence를 연결할 수 있습니다.
 
 ## muscle-memory 연동
 

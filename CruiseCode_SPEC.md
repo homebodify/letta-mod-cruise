@@ -143,6 +143,9 @@ It creates or resumes a run, prepares state, creates an Evidence Contract when p
 
 ```txt
 /code-cruise "task"
+/code-cruise --prototype "task"
+/code-cruise --mode prototype "task"
+/code-cruise --prototype --handoff <file>
 /code-cruise --verify-only
 /code-cruise --resume
 /code-cruise --handoff <file>
@@ -198,6 +201,18 @@ handoff JSON
 → create run
 → convert acceptance criteria into Evidence Contract
 ```
+
+For prototype mode:
+
+```txt
+direct task or read-only handoff
+→ Prototype Execution Contract
+→ bounded implementation
+→ git/check evidence
+→ portable Prototype Review Packet + report
+```
+
+Direct prototype tasks are recorded as `ux_intent_status: unverified`, so CruiseCode can make technical-evidence claims only. Prototype handoffs preserve inherited criterion references as read-only `ux_ref` values. CruiseCode does not create UX criteria, invent user scenarios, or issue a UX/product verdict.
 
 #### Blocking conditions
 
@@ -370,6 +385,7 @@ Final MVP storage layout:
     <run-id>/
       run.json
       plan.json
+      prototype-contract.json       # prototype runs only
       ledger.jsonl
       evidence/
         index.json
@@ -381,6 +397,8 @@ Final MVP storage layout:
         lint.txt
         build.txt
       report.md
+      prototype-review-packet.md    # prototype runs only
+      prototype-review-packet.json  # prototype runs only
 ```
 
 ### Removed from MVP run files
@@ -535,6 +553,17 @@ Example:
 }
 ```
 
+### 7.1 Prototype extension
+
+Prototype runs use `mode: "prototype"` and add a `prototype` object to `run.json`. It is also written separately as `prototype-contract.json` so a run can preserve:
+
+- `ux_input`: direct-task `unverified` input or read-only external/CruiseUX handoff references
+- `coverage_map`: inherited criterion references and their evidence status
+- `evidence_plan`: runtime, interaction, visual, accessibility, and human-review dimensions
+- `review_packet`: portable output status and the UX-validation-claim boundary
+
+Direct prototype tasks have no inherited UX criteria. Valid external handoffs remain optional inputs; CruiseUX is not a runtime dependency.
+
 ---
 
 ## 8. State Model
@@ -580,6 +609,18 @@ verified
 | `needs_evidence` | Implementation may be okay, but proof is insufficient |
 | `ready_with_caveats` | Core proof exists, but manual/optional checks remain |
 | `verified` | Evidence Contract is satisfied |
+
+### 8.2.1 Prototype verdicts
+
+Prototype runs do not use `verified` to make a UX claim. They use the following verdicts in addition to the shared workflow phases:
+
+| Verdict | Meaning |
+|---|---|
+| `prototype_evidence_incomplete` | Required implementation evidence is missing or an executable check failed |
+| `prototype_ready_for_review` | Technical evidence is collected; a human or separate UX workflow must determine any UX verdict |
+| `prototype_evidence_collected_with_caveats` | Core evidence exists, while optional or manual review evidence remains |
+| `review_packet_ready` | A portable review packet was generated for external review |
+| `promotion_blocked` | A blocker prevents promotion or review |
 
 ### 8.3 Step status
 
@@ -1120,6 +1161,14 @@ Recommended sections:
 
 ## Source
 
+## UX Input Status
+
+## Evidence Matrix
+
+## Limitations
+
+## Portable Review Packet
+
 ## Acceptance Criteria
 
 ## Evidence
@@ -1142,6 +1191,8 @@ If next-session notes are useful, include them inside `report.md`:
 ```md
 ## Next-session notes
 ```
+
+The four prototype-specific sections appear only for prototype runs. The paired `prototype-review-packet.md` and `prototype-review-packet.json` artifacts are portable review inputs; they do not represent a UX or product decision.
 
 ---
 
@@ -1256,6 +1307,18 @@ blocked              → block
 ```
 
 Any blocking open question should block CruiseCode implementation.
+
+### 19.7 Prototype handoff behavior
+
+Prototype mode accepts the same valid JSON handoff schema from CruiseUX or an external producer. Optional `scenarios`, `states`, and `design_refs` fields are consumed when present and otherwise remain unassessed.
+
+```txt
+valid handoff  → inherited_read_only UX input → implementation/coverage evidence
+direct task    → unverified UX input          → technical evidence only
+invalid explicit handoff → block; do not silently fall back to a direct task
+```
+
+The resulting packet is portable. CruiseUX can consume it later, but its presence is never required to run CruiseCode.
 
 ---
 
@@ -1482,7 +1545,7 @@ flaky test detection
 
 ## 24. Future Backlog
 
-### v0.2 candidates
+### Deferred workflow candidates
 
 ```txt
 /code-review
@@ -1496,7 +1559,7 @@ stronger handoff schema validation
 /code-clean
 ```
 
-### v0.3 candidates
+### Deferred validation and execution candidates
 
 ```txt
 Checker subagent
@@ -1507,7 +1570,7 @@ screenshot evidence
 Playwright/browser QA
 ```
 
-### v0.4 candidates
+### Longer-term platform candidates
 
 ```txt
 Python/Rust/Go project detection
@@ -1517,7 +1580,6 @@ flaky test detection
 per-project custom adapters
 optional native Go/Rust helper
 official package structure
-Tangled/GitHub publication
 ```
 
 ---

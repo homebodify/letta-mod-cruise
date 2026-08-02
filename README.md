@@ -15,6 +15,8 @@ No evidence → no verified
 | Command | Purpose | Best used when |
 | --- | --- | --- |
 | `/code-cruise "task"` | Starts the coding agent, tracks progress, verifies the result, and writes a report | You want CruiseCode to implement a task end to end |
+| `/code-cruise --prototype "task"`<br>`/code-cruise --mode prototype "task"` | Builds a bounded prototype from a direct task and writes a portable review packet | You need technical prototype evidence without a UX handoff |
+| `/code-cruise --prototype --handoff <file>` | Builds a prototype from a read-only implementation handoff | You already have UX criteria to trace into implementation evidence |
 | `/code-cruise --verify-only` | Verifies the current git diff with available checks | You already changed code and want evidence/reporting |
 | `/code-cruise --resume` | Shows the active run | You want to continue or inspect the current run |
 | `/code-cruise --handoff <file>` | Creates a run from `implementation-handoff.json` | You are continuing from a UX/product handoff |
@@ -57,6 +59,22 @@ The panel automatically closes 10 seconds after a run reaches `Closed`, `Blocked
 
 Automatic finalization runs once when the implementation turn ends. It collects staged and unstaged git changes, records untracked filenames without copying their contents, runs detected checks, generates the report, and injects one final-summary turn. CruiseCode does not commit or push unless the user explicitly asks the coding agent to do so.
 
+## Prototype evidence mode
+
+Prototype mode keeps CruiseCode focused on implementation evidence rather than becoming another prompt-to-app generator.
+
+```text
+/code-cruise --prototype "Build a scan-to-capture prototype"
+/code-cruise --mode prototype "Build a scan-to-capture prototype"  # alias
+/code-cruise --prototype --handoff implementation-handoff.json
+```
+
+- **Direct task:** CruiseCode records `ux_intent_status: unverified`, implements the requested prototype, and reports technical evidence only. It does not claim that UX was validated.
+- **Handoff:** CruiseCode treats valid external or CruiseUX `implementation-handoff.json` input as read-only. It preserves inherited criterion references, records coverage, and returns a review packet.
+- **Boundary:** CruiseCode does not create UX criteria, invent user scenarios, or make a UX/product decision. A human or separate UX workflow interprets the resulting evidence.
+
+Prototype mode writes a `prototype-contract.json`, then finishes with portable `prototype-review-packet.md` and `prototype-review-packet.json` artifacts beside the normal report. `--verify-only` is intentionally a standard-run command and cannot be combined with `--prototype`.
+
 ## Storage
 
 CruiseCode writes project-local state under the current working directory:
@@ -69,6 +87,7 @@ CruiseCode writes project-local state under the current working directory:
     <run-id>/
       run.json
       plan.json
+      prototype-contract.json       # prototype runs only
       ledger.jsonl
       evidence/
         index.json
@@ -80,6 +99,8 @@ CruiseCode writes project-local state under the current working directory:
         lint.txt
         build.txt
       report.md
+      prototype-review-packet.md    # prototype runs only
+      prototype-review-packet.json  # prototype runs only
       lesson-candidates.json
 ```
 
@@ -146,9 +167,9 @@ rm -rf "$tmp"
 npm pack --dry-run
 ```
 
-## CruiseUX handoff
+## CruiseUX and external handoffs
 
-CruiseCode is designed to pair with CruiseUX.
+CruiseUX is a useful upstream producer, not a runtime dependency. CruiseCode can also consume any valid external `implementation-handoff.json`.
 
 ```text
 CruiseUX   → UX framing, research, interview, ideation, spec, review
@@ -161,7 +182,7 @@ The intended handoff file is:
 implementation-handoff.json
 ```
 
-CruiseCode preserves original UX acceptance criteria such as `ux-ac-001` as `ux_ref`, so reports can connect UX intent to implementation evidence.
+For prototype handoffs, CruiseCode preserves original UX acceptance criteria such as `ux-ac-001` as read-only `ux_ref` values, so review packets can connect UX intent to implementation evidence without claiming a UX verdict.
 
 ## muscle-memory integration
 

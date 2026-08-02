@@ -1,7 +1,7 @@
 {
   "name": "cruise-code",
-  "version": "0.2.1",
-  "description": "Evidence-first Letta Code mod that executes coding tasks, tracks live progress, verifies changes, and writes reports.",
+  "version": "0.3.0",
+  "description": "Evidence-first Letta Code mod that executes coding tasks and bounded prototypes, tracks live progress, verifies changes, and writes portable review packets.",
   "author": "homebodify",
   "type": "module",
   "scripts": {
@@ -15,6 +15,8 @@
     "evidence-first",
     "verification",
     "ux-handoff",
+    "prototype",
+    "review-packet",
     "cruise-code"
   ],
   "repository": {
