@@ -1246,7 +1246,7 @@ source_artifacts
   "handoff_type": "cruiseux_to_cruisecode",
   "producer": {
     "mod": "CruiseUX",
-    "run_id": "scan-flow",
+    "run_id": "workspace-template-flow",
     "created_at": "2026-07-11T23:50:00-03:00"
   },
   "readiness": {
@@ -1255,25 +1255,25 @@ source_artifacts
     "reason": "UX spec and review are complete."
   },
   "brief": {
-    "title": "Data Matrix scan to patient intake flow",
-    "problem": "Reduce touches after login and route scanned patients correctly.",
-    "approved_direction": "After login, camera is ready to scan. A successful scan opens the matching patient flow.",
-    "user_flow_summary": "Login → scan Data Matrix → existing patient opens Study Intake; unknown patient opens Patient Creation with prefilled fields."
+    "title": "Workspace template selection flow",
+    "problem": "Reduce setup steps when a user starts a new workspace.",
+    "approved_direction": "After login, recently used templates are available. Selecting one opens workspace setup.",
+    "user_flow_summary": "Login → select a template → workspace setup opens with the selected template."
   },
   "acceptance_criteria": [
     {
       "id": "ux-ac-001",
-      "text": "After login, Mimosa Pro is ready to scan the Data Matrix code.",
+      "text": "After login, selecting a template opens workspace setup.",
       "priority": "must",
       "type": "functional",
       "evidence_required": ["git_diff", "manual_note"]
     }
   ],
   "non_goals": [
-    "Do not redesign the login flow."
+    "Do not redesign the sign-in flow."
   ],
   "constraints": [
-    "Preserve existing scan success behavior."
+    "Preserve existing template selection behavior."
   ],
   "open_questions": []
 }
@@ -1288,8 +1288,8 @@ Example:
 ```json
 {
   "id": "ac-001",
-  "text": "After login, Mimosa Pro is ready to scan the Data Matrix code.",
-  "source": "cruiseux:scan-flow",
+  "text": "After login, selecting a template opens workspace setup.",
+  "source": "cruiseux:workspace-template-flow",
   "ux_ref": "ux-ac-001",
   "status": "pending",
   "evidence_required": ["git_diff", "manual_note"]

@@ -230,12 +230,12 @@ test("prototype handoff preserves external UX references as read-only coverage",
   const handoffPath = join(cwd, "external-handoff.json");
   writeFileSync(handoffPath, JSON.stringify({
     readiness: { status: "implementation_ready" },
-    brief: { title: "Patient scan flow", problem: "Reduce touches", approved_direction: "Scan after login" },
+    brief: { title: "Workspace template flow", problem: "Reduce setup steps", approved_direction: "Show template selection after login" },
     acceptance_criteria: [
-      { id: "ux-ac-001", text: "Camera is ready after login.", evidence_required: ["git_diff"] },
+      { id: "ux-ac-001", text: "Selected template opens workspace setup.", evidence_required: ["git_diff"] },
     ],
-    non_goals: ["Do not redesign login."],
-    constraints: ["Preserve current scan behavior."],
+    non_goals: ["Do not redesign sign-in."],
+    constraints: ["Preserve existing template selection behavior."],
     open_questions: [],
     scenarios: [{ id: "ux-scn-001", states: [{ id: "ux-state-empty" }, { id: "ux-state-error" }] }],
     states: [{ id: "ux-state-loading" }],

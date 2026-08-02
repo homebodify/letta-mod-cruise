@@ -1,6 +1,6 @@
 {
   "name": "cruise-code",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Evidence-first Letta Code mod that executes coding tasks and bounded prototypes, tracks live progress, verifies changes, and writes portable review packets.",
   "author": "homebodify",
   "type": "module",

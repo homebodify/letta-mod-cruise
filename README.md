@@ -64,8 +64,8 @@ Automatic finalization runs once when the implementation turn ends. It collects 
 Prototype mode keeps CruiseCode focused on implementation evidence rather than becoming another prompt-to-app generator.
 
 ```text
-/code-cruise --prototype "Build a scan-to-capture prototype"
-/code-cruise --mode prototype "Build a scan-to-capture prototype"  # alias
+/code-cruise --prototype "Build a project dashboard prototype"
+/code-cruise --mode prototype "Build a project dashboard prototype"  # alias
 /code-cruise --prototype --handoff implementation-handoff.json
 ```
 

@@ -1468,7 +1468,7 @@ function buildLessonCandidates(cwd, run, plan, evidenceIndex, verdictResult) {
       ],
       redaction_notes: [
         "Remove local workspace paths from reports before sharing.",
-        "Remove private project names, patient data, secrets, and company-specific identifiers.",
+        "Remove private project names, personal data, secrets, and company-specific identifiers.",
       ],
       source_artifacts: ["report.md", "evidence/index.json"],
       confidence: verdictResult.verdict === "verified" ? "medium" : "low",
@@ -1493,7 +1493,7 @@ function buildLessonCandidates(cwd, run, plan, evidenceIndex, verdictResult) {
         "Acceptance criteria were too vague to become reusable implementation checks.",
       ],
       redaction_notes: [
-        "Keep UX reference IDs, but remove private research notes or healthcare/customer identifiers before sharing.",
+        "Keep UX reference IDs, but remove private research notes or customer-specific identifiers before sharing.",
       ],
       source_artifacts: ["plan.json", "report.md"],
       confidence: hasDiff ? "medium" : "low",

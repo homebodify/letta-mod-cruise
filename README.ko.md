@@ -64,8 +64,8 @@ Run이 `Closed`, `Blocked`, `Cancelled`에 도달하면 패널은 10초 뒤 자�
 Prototype mode는 CruiseCode를 또 하나의 prompt-to-app generator로 넓히지 않고, 구현 evidence를 정리하는 데 집중하게 합니다.
 
 ```text
-/code-cruise --prototype "Build a scan-to-capture prototype"
-/code-cruise --mode prototype "Build a scan-to-capture prototype"  # alias
+/code-cruise --prototype "Build a project dashboard prototype"
+/code-cruise --mode prototype "Build a project dashboard prototype"  # alias
 /code-cruise --prototype --handoff implementation-handoff.json
 ```
 
