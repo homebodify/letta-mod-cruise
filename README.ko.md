@@ -1,6 +1,6 @@
 # CruiseCode
 
-[English](https://github.com/homebodify/letta-mode-cruisecode) | [한국어](https://github.com/homebodify/letta-mode-cruisecode/blob/main/README.ko.md)
+[English](https://github.com/homebodify/letta-mod-cruisecode) | [한국어](https://github.com/homebodify/letta-mod-cruisecode/blob/main/README.ko.md)
 
 CruiseCode는 Letta Code용 evidence-first 코딩 워크플로우 mod입니다.
 
@@ -90,8 +90,8 @@ CruiseCode는 현재 작업 디렉토리 기준으로 project-local state를 저
 Tangled repo는 두 단계로 설치합니다. 먼저 repo를 clone하고, clone한 local package를 Letta에 설치합니다.
 
 ```bash
-git clone https://tangled.org/homebodify.tngl.sh/letta-mode-cruisecode
-letta install ./letta-mode-cruisecode
+git clone https://tangled.org/homebodify.tngl.sh/letta-mod-cruisecode letta-mod-cruisecode
+letta install ./letta-mod-cruisecode
 ```
 
 그 다음 Letta Code 세션에서 reload합니다.
@@ -109,9 +109,9 @@ letta install ./letta-mode-cruisecode
 사용 중인 Letta Code 버전에서 local package install이 동작하지 않으면, mod 파일을 직접 복사해도 됩니다.
 
 ```bash
-git clone https://tangled.org/homebodify.tngl.sh/letta-mode-cruisecode
+git clone https://tangled.org/homebodify.tngl.sh/letta-mod-cruisecode letta-mod-cruisecode
 mkdir -p ~/.letta/mods
-cp letta-mode-cruisecode/mods/index.ts ~/.letta/mods/cruise-code.js
+cp letta-mod-cruisecode/mods/index.ts ~/.letta/mods/cruise-code.js
 ```
 
 그 다음 `/reload`를 실행하세요.

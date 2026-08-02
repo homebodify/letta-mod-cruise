@@ -2,7 +2,8 @@
  * CruiseCode — evidence-first coding workflow mod for Letta Code.
  *
  * Commands:
- *   /code-cruise "task" | --verify-only | --resume | --handoff <file> | --from-ux <run-id>
+ *   /code-cruise "task" | --prototype "task" | --prototype --handoff <file>
+ *   --verify-only | --resume | --handoff <file> | --from-ux <run-id>
  *   /code-plan [task]
  *   /code-check
  *   /code-status
@@ -19,6 +20,7 @@ import { execFile } from "node:child_process";
 const MOD_ID = "cruise-code";
 const MOD_NAME = "CruiseCode";
 const SCHEMA_VERSION = 1;
+const PROTOTYPE_CONTRACT_SCHEMA_VERSION = 1;
 const DEFAULT_CHECK_TIMEOUT_MS = 120_000;
 const DEFAULT_DIFF_CAP_BYTES = 500_000;
 const MAX_OUTPUT_BYTES = 800_000;
@@ -41,6 +43,11 @@ const VERDICT_LABELS = {
   needs_evidence: "needs evidence",
   ready_with_caveats: "ready w/ caveats",
   verified: "verified",
+  prototype_evidence_incomplete: "prototype evidence incomplete",
+  prototype_ready_for_review: "prototype ready for review",
+  prototype_evidence_collected_with_caveats: "prototype evidence w/ caveats",
+  review_packet_ready: "review packet ready",
+  promotion_blocked: "promotion blocked",
 };
 
 const CHECK_DEFS = [
@@ -103,6 +110,16 @@ function writeText(path, text) {
   writeFileSync(path, text ?? "", "utf8");
 }
 
+function cloneJson(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function userError(message) {
+  const error = new Error(message);
+  error.kind = "user_error";
+  return error;
+}
+
 function truncateText(value, maxBytes = MAX_OUTPUT_BYTES) {
   const text = String(value ?? "");
   const bytes = Buffer.byteLength(text, "utf8");
@@ -136,6 +153,20 @@ function stripWrappingQuotes(value) {
     return text.slice(1, -1).trim();
   }
   return text;
+}
+
+function extractPrototypeFlag(value) {
+  let remaining = String(value ?? "").trim();
+  let isPrototype = false;
+  while (remaining) {
+    const prototypeMatch = remaining.match(/^--prototype(?:\s+|$)/i);
+    const modeMatch = remaining.match(/^--mode(?:=|\s+)prototype(?:\s+|$)/i);
+    const match = prototypeMatch || modeMatch;
+    if (!match) break;
+    isPrototype = true;
+    remaining = remaining.slice(match[0].length).trim();
+  }
+  return { isPrototype, remaining };
 }
 
 function slugify(value) {
@@ -225,6 +256,9 @@ function paths(cwd, runId = null) {
     p.ledger = join(p.runDir, "ledger.jsonl");
     p.evidenceDir = join(p.runDir, "evidence");
     p.evidenceIndex = join(p.evidenceDir, "index.json");
+    p.prototypeContract = join(p.runDir, "prototype-contract.json");
+    p.prototypeReviewPacketJson = join(p.runDir, "prototype-review-packet.json");
+    p.prototypeReviewPacketMd = join(p.runDir, "prototype-review-packet.md");
     p.report = join(p.runDir, "report.md");
     p.lessonCandidates = join(p.runDir, "lesson-candidates.json");
   }
@@ -328,6 +362,11 @@ function savePlan(cwd, runId, plan) {
   writeJson(paths(cwd, runId).plan, plan);
 }
 
+function savePrototypeContract(cwd, run) {
+  if (!run?.prototype) return;
+  writeJson(paths(cwd, run.run_id).prototypeContract, run.prototype);
+}
+
 function loadEvidenceIndex(cwd, runId) {
   return readJson(paths(cwd, runId).evidenceIndex, { schema_version: SCHEMA_VERSION, items: [] });
 }
@@ -355,7 +394,7 @@ function appendLedger(cwd, run, event, summary, data = {}) {
   appendFileSync(p.ledger, `${JSON.stringify(entry)}\n`, "utf8");
 }
 
-function createBaseRun(cwd, { title, task, mode = "standard", source = { type: "manual" } }) {
+function createBaseRun(cwd, { title, task, mode = "standard", source = { type: "manual" }, prototype = null }) {
   const runId = makeRunId(title || task || "CruiseCode run");
   const p = paths(cwd, runId);
   ensureDir(p.evidenceDir);
@@ -379,6 +418,7 @@ function createBaseRun(cwd, { title, task, mode = "standard", source = { type: "
       ux_run_id: source.ux_run_id ?? null,
       readiness: source.readiness ?? null,
     },
+    prototype: prototype ? cloneJson(prototype) : null,
     workspace: {
       cwd,
       branch: null,
@@ -412,33 +452,132 @@ function createBaseRun(cwd, { title, task, mode = "standard", source = { type: "
 
   writeJson(p.run, run);
   writeJson(p.evidenceIndex, { schema_version: SCHEMA_VERSION, items: [] });
+  savePrototypeContract(cwd, run);
   writeText(p.ledger, "");
   saveActive(cwd, runId);
   appendLedger(cwd, run, "run_created", `Run created: ${run.title}`, { mode, source: run.source });
   return run;
 }
 
+function prototypeEvidencePlan() {
+  return {
+    runtime: "required",
+    interaction: "required",
+    visual: "review_required",
+    accessibility: "automated_if_available",
+    human_review: "required_before_review_packet",
+  };
+}
+
+function referenceIds(values) {
+  if (!Array.isArray(values)) return [];
+  return [...new Set(values
+    .map((value) => typeof value === "string" ? value : value?.id)
+    .filter((value) => typeof value === "string" && value.trim()))];
+}
+
+function handoffScenarioRefs(handoff) {
+  return referenceIds(handoff?.scenarios ?? handoff?.user_scenarios);
+}
+
+function handoffStateRefs(handoff) {
+  const fromTopLevel = referenceIds(handoff?.states ?? handoff?.ui_states);
+  const fromScenarios = Array.isArray(handoff?.scenarios)
+    ? handoff.scenarios.flatMap((scenario) => referenceIds(scenario?.states))
+    : [];
+  return [...new Set([...fromTopLevel, ...fromScenarios])];
+}
+
+function handoffDesignRefs(handoff) {
+  if (!Array.isArray(handoff?.design_refs)) return [];
+  return handoff.design_refs
+    .filter((ref) => ref && typeof ref === "object")
+    .map((ref) => ({ type: String(ref.type || "reference"), ref: String(ref.ref || ref.url || ref.path || "") }))
+    .filter((ref) => ref.ref);
+}
+
+function createPrototypeContract({ uxInput, prototypeScope = {}, coverageMap = [], designRefs = [] }) {
+  return {
+    schema_version: PROTOTYPE_CONTRACT_SCHEMA_VERSION,
+    mode: "prototype",
+    ux_input: {
+      source_type: uxInput?.source_type || "direct_task",
+      source_path: uxInput?.source_path ?? null,
+      intent_status: uxInput?.intent_status || "unverified",
+      criteria_refs: Array.isArray(uxInput?.criteria_refs) ? uxInput.criteria_refs : [],
+      scenario_refs: Array.isArray(uxInput?.scenario_refs) ? uxInput.scenario_refs : [],
+      state_refs: Array.isArray(uxInput?.state_refs) ? uxInput.state_refs : [],
+    },
+    prototype_scope: {
+      fidelity: prototypeScope.fidelity ?? null,
+      platforms: Array.isArray(prototypeScope.platforms) ? prototypeScope.platforms : [],
+      non_goals: Array.isArray(prototypeScope.non_goals) ? prototypeScope.non_goals : [],
+    },
+    design_refs: Array.isArray(designRefs) ? designRefs : [],
+    coverage_map: Array.isArray(coverageMap) ? coverageMap : [],
+    evidence_plan: prototypeEvidencePlan(),
+    review_packet: {
+      target: "portable_local_file",
+      ux_validation_claim: uxInput?.intent_status === "inherited_read_only" ? "inherited" : "unavailable",
+      status: "not_generated",
+      generated_at: null,
+    },
+  };
+}
+
+function createDirectTaskPrototypeContract(nonGoals = []) {
+  return createPrototypeContract({
+    uxInput: {
+      source_type: "direct_task",
+      intent_status: "unverified",
+      criteria_refs: [],
+      scenario_refs: [],
+      state_refs: [],
+    },
+    prototypeScope: { non_goals: nonGoals },
+  });
+}
+
+function createHandoffPrototypeContract(cwd, handoffPath, handoff) {
+  const sourceType = handoff?.producer?.run_id ? "cruiseux_handoff" : "external_handoff";
+  const criteriaRefs = referenceIds(handoff?.acceptance_criteria);
+  return createPrototypeContract({
+    uxInput: {
+      source_type: sourceType,
+      source_path: relativePath(cwd, handoffPath),
+      intent_status: "inherited_read_only",
+      criteria_refs: criteriaRefs,
+      scenario_refs: handoffScenarioRefs(handoff),
+      state_refs: handoffStateRefs(handoff),
+    },
+    prototypeScope: { non_goals: Array.isArray(handoff?.non_goals) ? handoff.non_goals : [] },
+    coverageMap: criteriaRefs.map((uxRef) => ({
+      ux_ref: uxRef,
+      implementation_surface: null,
+      evidence_status: "planned",
+    })),
+    designRefs: handoffDesignRefs(handoff),
+  });
+}
+
 // ── Handoff ─────────────────────────────────────────────────────────────────
 
 function validateHandoff(handoff) {
+  if (!handoff || typeof handoff !== "object" || Array.isArray(handoff)) {
+    throw userError("Handoff must be a JSON object.");
+  }
   const missing = [];
   for (const key of ["readiness", "brief", "acceptance_criteria", "non_goals", "constraints", "open_questions"]) {
     if (!(key in handoff)) missing.push(key);
   }
   if (missing.length) {
-    const error = new Error(`Handoff is missing required field(s): ${missing.join(", ")}`);
-    error.kind = "user_error";
-    throw error;
+    throw userError(`Handoff is missing required field(s): ${missing.join(", ")}`);
   }
   if (!Array.isArray(handoff.acceptance_criteria) || handoff.acceptance_criteria.length === 0) {
-    const error = new Error("Handoff must include at least one acceptance criterion.");
-    error.kind = "user_error";
-    throw error;
+    throw userError("Handoff must include at least one acceptance criterion.");
   }
   if (!Array.isArray(handoff.open_questions)) {
-    const error = new Error("Handoff open_questions must be an array, even when empty.");
-    error.kind = "user_error";
-    throw error;
+    throw userError("Handoff open_questions must be an array, even when empty.");
   }
   return handoff;
 }
@@ -446,9 +585,7 @@ function validateHandoff(handoff) {
 function readHandoffFile(cwd, filePath) {
   const fullPath = resolveInputPath(cwd, filePath);
   if (!existsSync(fullPath)) {
-    const error = new Error(`Handoff file not found: ${fullPath}`);
-    error.kind = "user_error";
-    throw error;
+    throw userError(`Handoff file not found: ${fullPath}`);
   }
   const handoff = readJson(fullPath, null);
   return { path: fullPath, handoff: validateHandoff(handoff) };
@@ -655,6 +792,43 @@ function buildPlanFromHandoff(handoff, checks = []) {
   };
 }
 
+function addPrototypePlanFields(plan, prototype) {
+  const next = {
+    ...plan,
+    mode: "prototype",
+    ux_input: cloneJson(prototype.ux_input),
+    coverage_map: cloneJson(prototype.coverage_map),
+    evidence_plan: cloneJson(prototype.evidence_plan),
+    design_refs: cloneJson(prototype.design_refs || []),
+  };
+  const reportStep = next.steps.find((step) => step.kind === "report");
+  if (reportStep) {
+    reportStep.title = "Generate portable Prototype Review Packet";
+    reportStep.done_when = ["Prototype report and portable review packet are written with explicit limitations."];
+    reportStep.evidence_required = ["prototype_review_packet"];
+  } else {
+    next.steps.push({
+      id: `step-${String(next.steps.length + 1).padStart(2, "0")}`,
+      title: "Generate portable Prototype Review Packet",
+      kind: "report",
+      status: "pending",
+      risk: "low",
+      acceptance_refs: next.acceptance_criteria.map((criterion) => criterion.id),
+      done_when: ["Prototype report and portable review packet are written with explicit limitations."],
+      evidence_required: ["prototype_review_packet"],
+    });
+  }
+  return next;
+}
+
+function buildPrototypePlanFromTask(task, checks, prototype) {
+  return addPrototypePlanFields(buildPlanFromTask(task, checks), prototype);
+}
+
+function buildPrototypePlanFromHandoff(handoff, checks, prototype) {
+  return addPrototypePlanFields(buildPlanFromHandoff(handoff, checks), prototype);
+}
+
 function updateRunSummaryFromPlan(run, plan, evidenceIndex = null) {
   const steps = Array.isArray(plan?.steps) ? plan.steps : [];
   const checks = Array.isArray(plan?.checks) ? plan.checks : [];
@@ -738,6 +912,17 @@ function startAgentExecution(cwd, run, plan, ctx) {
 function buildExecutionPrompt(cwd, run, plan) {
   const criteria = (plan?.acceptance_criteria || []).map((criterion) => `- ${criterion.id}: ${criterion.text}`).join("\n") || "- Complete the requested task.";
   const constraints = (plan?.constraints || []).map((constraint) => `- ${constraint}`).join("\n") || "- Preserve unrelated behavior.";
+  const prototypeInstructions = run.mode === "prototype"
+    ? [
+      "",
+      "Prototype-mode boundary:",
+      `- UX input status: ${run.prototype?.ux_input?.intent_status || "unknown"}.`,
+      `- UX source: ${run.prototype?.ux_input?.source_type || "unknown"}.`,
+      "- Do not invent UX acceptance criteria, user scenarios, or a UX/product verdict.",
+      "- If UX input is unverified, collect technical implementation evidence only and do not claim that UX was validated.",
+      "- Preserve inherited UX references read-only; CruiseCode will write a portable review packet after this turn.",
+    ]
+    : [];
   return [
     `<cruisecode-run id="${run.run_id}">`,
     "Execute this coding task now. Do not stop after planning and do not merely explain what should be changed.",
@@ -750,6 +935,7 @@ function buildExecutionPrompt(cwd, run, plan) {
     "",
     "Constraints:",
     constraints,
+    ...prototypeInstructions,
     "",
     "Required workflow:",
     "1. Inspect the relevant implementation and project guidance.",
@@ -975,7 +1161,7 @@ function checkEvidenceItem(index, check) {
   return (index.items || []).find((item) => item.type === check.evidence_type);
 }
 
-function calculateVerdict(run, plan, evidenceIndex) {
+function calculateStandardVerdict(run, plan, evidenceIndex) {
   const blockers = unresolvedBlockers(run);
   if (blockers.length) {
     return { verdict: "needs_evidence", reason: `${blockers.length} blocker(s) require attention.` };
@@ -1009,6 +1195,59 @@ function calculateVerdict(run, plan, evidenceIndex) {
   return { verdict: "verified", reason: "Required checks and evidence are present with no unresolved blockers." };
 }
 
+function calculatePrototypeVerdict(run, plan, evidenceIndex) {
+  const blockers = unresolvedBlockers(run);
+  if (blockers.length) {
+    return { verdict: "promotion_blocked", reason: `${blockers.length} blocker(s) require attention before promotion or review.` };
+  }
+
+  const checks = Array.isArray(plan?.checks) ? plan.checks : [];
+  const required = checks.filter((check) => check.required);
+  const items = evidenceIndex?.items || [];
+  const anyFailed = checks.some((check) => checkEvidenceItem({ items }, check)?.status === "failed");
+  if (anyFailed) {
+    return { verdict: "prototype_evidence_incomplete", reason: "One or more executable checks failed; prototype evidence is incomplete." };
+  }
+
+  const missingRequired = required.filter((check) => checkEvidenceItem({ items }, check)?.status !== "passed");
+  if (missingRequired.length) {
+    return { verdict: "prototype_evidence_incomplete", reason: `Required check evidence missing: ${missingRequired.map((check) => check.id).join(", ")}.` };
+  }
+  if (!required.length) {
+    return { verdict: "prototype_evidence_incomplete", reason: "No required executable checks were detected." };
+  }
+
+  const gitDiff = items.find((item) => item.type === "git_diff");
+  if (!gitDiff || gitDiff.status !== "collected") {
+    return { verdict: "prototype_evidence_incomplete", reason: "Git diff evidence is missing." };
+  }
+
+  const optional = checks.filter((check) => !check.required);
+  const optionalMissing = optional.filter((check) => !checkEvidenceItem({ items }, check));
+  const requiredManualMissing = (plan?.manual_checks || []).filter((check) => check.required);
+  if (run.prototype?.ux_input?.intent_status === "unverified") {
+    return {
+      verdict: "prototype_ready_for_review",
+      reason: "Technical evidence is collected; no inherited UX criteria are available, so UX validation remains unavailable.",
+    };
+  }
+  if (optionalMissing.length || requiredManualMissing.length) {
+    return {
+      verdict: "prototype_evidence_collected_with_caveats",
+      reason: "Core implementation evidence exists; optional or manual review evidence remains.",
+    };
+  }
+  return {
+    verdict: "prototype_ready_for_review",
+    reason: "Required implementation evidence is collected; a human or upstream UX workflow must still determine the UX verdict.",
+  };
+}
+
+function calculateVerdict(run, plan, evidenceIndex) {
+  if (run?.mode === "prototype") return calculatePrototypeVerdict(run, plan, evidenceIndex);
+  return calculateStandardVerdict(run, plan, evidenceIndex);
+}
+
 // ── UI / formatting ──────────────────────────────────────────────────────────
 
 function proofSymbol(index, type) {
@@ -1023,6 +1262,13 @@ function proofSymbol(index, type) {
 
 function sourceLabel(run) {
   const source = run?.source || {};
+  if (run?.mode === "prototype") {
+    const uxInput = run.prototype?.ux_input || {};
+    if (uxInput.source_type === "direct_task") return "prototype · direct task · UX unverified";
+    const sourceName = uxInput.source_type === "cruiseux_handoff" ? "CruiseUX handoff" : "external handoff";
+    const reference = source.handoff_path ? basename(source.handoff_path) : "handoff";
+    return `prototype · ${sourceName} · ${reference}`;
+  }
   if (source.type === "cruiseux") return `CruiseUX · ${source.ux_run_id || "handoff"}`;
   if (source.type === "handoff") return `handoff · ${basename(source.handoff_path || "file")}`;
   if (source.type === "verify_only") return "verify-only · current diff";
@@ -1042,9 +1288,10 @@ function nextAction(run, plan, evidenceIndex) {
   if (run.phase === "checking") {
     if (run.verdict === "needs_work") return "fix failure, then /code-check";
     if (run.verdict === "needs_evidence") return "add evidence or run checks";
+    if (run.verdict === "prototype_evidence_incomplete") return "add implementation evidence, then /code-check";
     return "/code-report";
   }
-  if (run.phase === "closed") return "review report";
+  if (run.phase === "closed") return run.mode === "prototype" ? "review portable packet" : "review report";
   return "/code-status";
 }
 
@@ -1056,7 +1303,8 @@ function renderPanelLines(run, plan, evidenceIndex, width = 48) {
   const bottom = `╰${"─".repeat(inner)}╯`;
   const stepsTotal = run?.summary?.steps_total ?? plan?.steps?.length ?? 0;
   const stepsDone = run?.summary?.steps_done ?? 0;
-  const phase = `${PHASE_LABELS[run?.phase] || run?.phase || "Brief"} · step ${stepsDone}/${stepsTotal}`;
+  const phaseBase = `${PHASE_LABELS[run?.phase] || run?.phase || "Brief"} · step ${stepsDone}/${stepsTotal}`;
+  const phase = run?.mode === "prototype" ? `Prototype · ${phaseBase}` : phaseBase;
   const current = plan?.steps?.find((step) => step.id === run?.current_step_id) || plan?.steps?.find((step) => step.status === "active") || plan?.steps?.find((step) => step.status === "pending");
   const nowLine = run?.execution?.last_activity || current?.title || (run?.phase === "closed" ? "Report ready" : run?.phase === "planned" ? "Evidence Contract ready" : "Capture coding task");
   const proof = `diff ${proofSymbol(evidenceIndex, "git_diff")}  typecheck ${proofSymbol(evidenceIndex, "typecheck_output")}  test ${proofSymbol(evidenceIndex, "test_output")}`;
@@ -1148,6 +1396,16 @@ function formatStatus(cwd, run, plan, evidenceIndex) {
   const checkLines = checks.length
     ? checks.map((check) => `${check.required ? "required" : "optional"} ${check.id}: ${check.command}`)
     : ["– no checks detected"];
+  const prototypeLines = run.mode === "prototype"
+    ? [
+      "",
+      "Prototype",
+      `- UX input: ${run.prototype?.ux_input?.source_type || "unknown"} · ${run.prototype?.ux_input?.intent_status || "unknown"}`,
+      `- UX validation claim: ${run.prototype?.review_packet?.ux_validation_claim || "unavailable"}`,
+      `- Coverage refs: ${(run.prototype?.coverage_map || []).length}`,
+      `- Review packet: ${run.prototype?.review_packet?.status || "not_generated"}`,
+    ]
+    : [];
   return [
     "CruiseCode Status",
     "",
@@ -1159,6 +1417,7 @@ function formatStatus(cwd, run, plan, evidenceIndex) {
     `- Phase: ${PHASE_LABELS[run.phase] || run.phase}`,
     `- Verdict: ${VERDICT_LABELS[run.verdict] || run.verdict}`,
     `- Risk: ${run.summary?.risk || "unknown"}`,
+    ...prototypeLines,
     "",
     "Progress",
     ...(stepLines.length ? stepLines : ["– no steps planned"]),
@@ -1301,7 +1560,211 @@ function lessonCandidateMarkdown(lessonExport) {
   ]);
 }
 
-function buildReportMarkdown(cwd, run, plan, evidenceIndex, verdictResult, lessonExport) {
+function criterionCoverageStatus(criterion, evidenceIndex) {
+  const required = Array.isArray(criterion?.evidence_required) ? criterion.evidence_required : [];
+  if (!required.length) return "not_assessed";
+  const evidence = evidenceIndex?.items || [];
+  const statuses = required.map((type) => evidence.find((item) => item.type === type)?.status || "missing");
+  if (statuses.every((status) => ["collected", "passed"].includes(status))) return "covered";
+  if (statuses.some((status) => ["collected", "passed", "failed"].includes(status))) return "partial";
+  return "not_assessed";
+}
+
+function refreshPrototypeCoverage(run, plan, evidenceIndex) {
+  if (run?.mode !== "prototype" || !run.prototype) return [];
+  const byUxRef = new Map((plan?.acceptance_criteria || [])
+    .filter((criterion) => criterion.ux_ref)
+    .map((criterion) => [criterion.ux_ref, criterion]));
+  const coverage = (run.prototype.coverage_map || plan?.coverage_map || []).map((entry) => {
+    const criterion = byUxRef.get(entry.ux_ref);
+    return {
+      ...entry,
+      evidence_status: criterion ? criterionCoverageStatus(criterion, evidenceIndex) : "not_assessed",
+    };
+  });
+  run.prototype.coverage_map = coverage;
+  if (plan) plan.coverage_map = cloneJson(coverage);
+  return coverage;
+}
+
+function evidenceMatrixStatus(evidenceIndex, types) {
+  const evidence = evidenceIndex?.items || [];
+  const items = evidence.filter((item) => types.includes(item.type));
+  if (!items.length) return { result: "not_assessed", evidence: "none" };
+  if (items.some((item) => item.status === "failed")) {
+    return { result: "failed", evidence: items.map((item) => `${item.type}: ${item.status}`).join(", ") };
+  }
+  if (items.every((item) => ["passed", "collected"].includes(item.status))) {
+    return { result: "passed", evidence: items.map((item) => `${item.type}: ${item.status}`).join(", ") };
+  }
+  return { result: "partial", evidence: items.map((item) => `${item.type}: ${item.status}`).join(", ") };
+}
+
+function buildPrototypeEvidenceMatrix(run, plan, evidenceIndex) {
+  const buildability = evidenceMatrixStatus(evidenceIndex, ["typecheck_output", "build_output"]);
+  const coverage = run?.prototype?.coverage_map || plan?.coverage_map || [];
+  const coverageStatuses = coverage.map((entry) => entry.evidence_status || "not_assessed");
+  const stateCoverage = !coverageStatuses.length
+    ? "not_assessed"
+    : coverageStatuses.every((status) => status === "covered")
+      ? "covered"
+      : coverageStatuses.some((status) => ["covered", "partial"].includes(status))
+        ? "partial"
+        : "not_assessed";
+  return [
+    {
+      dimension: "Buildability",
+      evidence: buildability.evidence,
+      result: buildability.result,
+      limitation: "Build evidence does not establish UX suitability.",
+    },
+    {
+      dimension: "Interaction",
+      evidence: "none",
+      result: "not_assessed",
+      limitation: "P0 does not infer browser interaction evidence from generic tests.",
+    },
+    {
+      dimension: "Visual",
+      evidence: "none",
+      result: "not_assessed",
+      limitation: "No visual reference or screenshot comparison is collected in P0.",
+    },
+    {
+      dimension: "State coverage",
+      evidence: coverage.length ? `${coverage.length} inherited criterion/criteria` : "no inherited UX criteria",
+      result: stateCoverage,
+      limitation: coverage.length ? "Coverage reflects collected implementation evidence, not user comprehension." : "No inherited UX criteria were supplied.",
+    },
+    {
+      dimension: "Accessibility",
+      evidence: "none",
+      result: "not_assessed",
+      limitation: "Automated or manual accessibility review is not integrated in P0.",
+    },
+    {
+      dimension: "Human evidence",
+      evidence: "none",
+      result: "not_assessed",
+      limitation: "No user or reviewer observation was recorded by CruiseCode.",
+    },
+    {
+      dimension: "Review packet",
+      evidence: "prototype-review-packet.md/json",
+      result: "portable",
+      limitation: "A human or separate UX workflow must interpret the packet.",
+    },
+  ];
+}
+
+function prototypeLimitations(run, matrix) {
+  const limitations = [];
+  if (run?.prototype?.ux_input?.intent_status === "unverified") {
+    limitations.push("No inherited UX criterion was supplied; UX validation claim is unavailable.");
+  }
+  for (const entry of matrix || []) {
+    if (["not_assessed", "partial", "failed"].includes(entry.result)) {
+      limitations.push(`${entry.dimension}: ${entry.limitation}`);
+    }
+  }
+  return [...new Set(limitations)];
+}
+
+function markdownTableCell(value) {
+  return String(value ?? "").replace(/[|\r\n]+/g, " ").trim() || "—";
+}
+
+function buildPrototypeReviewPacket(cwd, run, plan, evidenceIndex, verdictResult) {
+  const coverageMap = refreshPrototypeCoverage(run, plan, evidenceIndex);
+  const matrix = buildPrototypeEvidenceMatrix(run, plan, evidenceIndex);
+  const limitations = prototypeLimitations(run, matrix);
+  const blockers = unresolvedBlockers(run).map((blocker) => ({
+    id: blocker.id,
+    severity: blocker.severity,
+    reason: blocker.reason,
+  }));
+  const packet = {
+    schema_version: PROTOTYPE_CONTRACT_SCHEMA_VERSION,
+    source: MOD_ID,
+    run_id: run.run_id,
+    mode: "prototype",
+    generated_at: run.prototype?.review_packet?.generated_at || now(),
+    ux_input: cloneJson(run.prototype?.ux_input || {}),
+    prototype_scope: cloneJson(run.prototype?.prototype_scope || {}),
+    design_refs: cloneJson(run.prototype?.design_refs || []),
+    coverage_map: cloneJson(coverageMap),
+    evidence_matrix: matrix,
+    limitations,
+    promotion_blockers: blockers,
+    verdict: verdictResult.verdict,
+    ux_validation_claim: run.prototype?.review_packet?.ux_validation_claim || "unavailable",
+    report_path: "report.md",
+  };
+  const markdown = [
+    `# Prototype Review Packet: ${run.title}`,
+    "",
+    "## UX Input Status",
+    `- Source type: ${packet.ux_input.source_type || "unknown"}`,
+    `- Intent status: ${packet.ux_input.intent_status || "unknown"}`,
+    `- UX validation claim: ${packet.ux_validation_claim}`,
+    `- Criteria refs: ${(packet.ux_input.criteria_refs || []).join(", ") || "none"}`,
+    `- Scenario refs: ${(packet.ux_input.scenario_refs || []).join(", ") || "none"}`,
+    `- State refs: ${(packet.ux_input.state_refs || []).join(", ") || "none"}`,
+    "",
+    "## Coverage Map",
+    "| UX Ref | Implementation Surface | Evidence Status |",
+    "| --- | --- | --- |",
+    ...(packet.coverage_map.length
+      ? packet.coverage_map.map((entry) => `| ${markdownTableCell(entry.ux_ref)} | ${markdownTableCell(entry.implementation_surface)} | ${markdownTableCell(entry.evidence_status)} |`)
+      : ["| — | No inherited UX criteria | not_assessed |"]),
+    "",
+    "## Evidence Matrix",
+    "| Dimension | Evidence | Result | Limitation |",
+    "| --- | --- | --- | --- |",
+    ...packet.evidence_matrix.map((entry) => `| ${markdownTableCell(entry.dimension)} | ${markdownTableCell(entry.evidence)} | ${markdownTableCell(entry.result)} | ${markdownTableCell(entry.limitation)} |`),
+    "",
+    "## Limitations",
+    ...(packet.limitations.length ? packet.limitations.map((limitation) => `- ${limitation}`) : ["- none"]),
+    "",
+    "## Promotion Blockers",
+    ...(packet.promotion_blockers.length ? packet.promotion_blockers.map((blocker) => `- ${blocker.id}: ${blocker.reason}`) : ["- none"]),
+    "",
+    "## Run Metadata",
+    `- Run ID: ${packet.run_id}`,
+    `- Verdict: ${packet.verdict}`,
+    `- Report: ${packet.report_path}`,
+    "",
+  ].join("\n");
+  return { packet, markdown };
+}
+
+function prototypeReportSections(prototypePacket) {
+  if (!prototypePacket?.packet) return [];
+  const packet = prototypePacket.packet;
+  return [
+    "## UX Input Status",
+    `- Source type: ${packet.ux_input.source_type || "unknown"}`,
+    `- Intent status: ${packet.ux_input.intent_status || "unknown"}`,
+    `- UX validation claim: ${packet.ux_validation_claim}`,
+    `- Inherited criteria: ${(packet.ux_input.criteria_refs || []).join(", ") || "none"}`,
+    "",
+    "## Evidence Matrix",
+    "| Dimension | Result | Evidence |",
+    "| --- | --- | --- |",
+    ...packet.evidence_matrix.map((entry) => `| ${markdownTableCell(entry.dimension)} | ${markdownTableCell(entry.result)} | ${markdownTableCell(entry.evidence)} |`),
+    "",
+    "## Limitations",
+    ...(packet.limitations.length ? packet.limitations.map((limitation) => `- ${limitation}`) : ["- none"]),
+    "",
+    "## Portable Review Packet",
+    "- `prototype-review-packet.md`",
+    "- `prototype-review-packet.json`",
+    "- CruiseCode does not issue a UX or product verdict; a human or separate UX workflow must interpret this packet.",
+    "",
+  ];
+}
+
+function buildReportMarkdown(cwd, run, plan, evidenceIndex, verdictResult, lessonExport, prototypePacket = null) {
   const blockers = unresolvedBlockers(run);
   const evidence = evidenceIndex?.items || [];
   const evidenceByType = new Map(evidence.map((item) => [item.type, item]));
@@ -1331,6 +1794,7 @@ function buildReportMarkdown(cwd, run, plan, evidenceIndex, verdictResult, lesso
     `- ${sourceLabel(run)}`,
     `- Workspace: ${cwd}`,
     "",
+    ...prototypeReportSections(prototypePacket),
     "## Acceptance Criteria",
     ...(criteriaLines.length ? criteriaLines : ["- none"]),
     "",
@@ -1425,6 +1889,74 @@ async function initializeRunFromHandoff(cwd, handoffPath, handoff) {
   return { run, plan, evidenceIndex: loadEvidenceIndex(cwd, run.run_id) };
 }
 
+async function initializePrototypeRunFromTask(cwd, task) {
+  const checks = buildCheckCommands(cwd);
+  const prototype = createDirectTaskPrototypeContract([
+    "Do not change unrelated behavior.",
+    "Do not add dependencies unless explicitly approved.",
+  ]);
+  const run = createBaseRun(cwd, {
+    title: task,
+    task,
+    mode: "prototype",
+    source: { type: "manual" },
+    prototype,
+  });
+  const plan = buildPrototypePlanFromTask(task, checks, prototype);
+  savePlan(cwd, run.run_id, plan);
+  run.phase = "planned";
+  updateRunSummaryFromPlan(run, plan, loadEvidenceIndex(cwd, run.run_id));
+  saveRun(cwd, run);
+  savePrototypeContract(cwd, run);
+  appendLedger(cwd, run, "prototype_contract_created", "Prototype Execution Contract created from direct task", {
+    ux_intent_status: run.prototype.ux_input.intent_status,
+    checks: checks.map((check) => check.id),
+  });
+  return { run, plan, evidenceIndex: loadEvidenceIndex(cwd, run.run_id) };
+}
+
+async function initializePrototypeRunFromHandoff(cwd, handoffPath, handoff) {
+  const checks = buildCheckCommands(cwd);
+  const readiness = handoff.readiness?.status ?? "unknown";
+  const producerRun = handoff.producer?.run_id ?? null;
+  const sourceType = producerRun ? "cruiseux" : "handoff";
+  const prototype = createHandoffPrototypeContract(cwd, handoffPath, handoff);
+  const run = createBaseRun(cwd, {
+    title: handoffTitle(handoff),
+    task: handoffTask(handoff),
+    mode: "prototype",
+    source: {
+      type: sourceType,
+      handoff_path: handoffPath,
+      ux_run_id: producerRun,
+      readiness,
+    },
+    prototype,
+  });
+  const plan = buildPrototypePlanFromHandoff(handoff, checks, prototype);
+  savePlan(cwd, run.run_id, plan);
+
+  const blockers = blockingQuestions(handoff);
+  if (!["implementation_ready", "prototype_ready"].includes(readiness)) {
+    run.blockers.push({ id: "handoff_readiness", status: "open", severity: "high", reason: `Handoff readiness is ${readiness}`, created_at: now() });
+  }
+  for (const question of blockers) {
+    run.blockers.push({ id: question.id || `open_question_${run.blockers.length + 1}`, status: "open", severity: "high", reason: question.question || "Blocking open question", created_at: now() });
+  }
+
+  run.phase = run.blockers.length ? "blocked" : "planned";
+  updateRunSummaryFromPlan(run, plan, loadEvidenceIndex(cwd, run.run_id));
+  saveRun(cwd, run);
+  savePrototypeContract(cwd, run);
+  appendLedger(cwd, run, "prototype_contract_created", "Prototype Execution Contract created from handoff", {
+    handoff_path: relativePath(cwd, handoffPath),
+    readiness,
+    ux_input: run.prototype.ux_input,
+  });
+  for (const blocker of run.blockers) appendLedger(cwd, run, "blocker_added", `Blocker added: ${blocker.reason}`, { blocker });
+  return { run, plan, evidenceIndex: loadEvidenceIndex(cwd, run.run_id) };
+}
+
 function launchImplementation(letta, ctx, cwd, run, plan, evidenceIndex) {
   if (unresolvedBlockers(run).length) {
     updatePanel(letta, run, plan, evidenceIndex);
@@ -1465,6 +1997,7 @@ async function runCheckFlow(cwd, run, plan, onProgress = null) {
   if (onProgress) await onProgress("Evaluating evidence", run, plan, evidenceIndex);
   const risk = await collectGitRisk(cwd);
   addBlockersFromRisk(cwd, run, risk);
+  if (run.mode === "prototype") refreshPrototypeCoverage(run, plan, evidenceIndex);
   const verdictResult = calculateVerdict(run, plan, evidenceIndex);
   run.verdict = verdictResult.verdict;
   if (unresolvedBlockers(run).length) run.phase = "blocked";
@@ -1476,20 +2009,31 @@ async function runCheckFlow(cwd, run, plan, onProgress = null) {
   }
   updateRunSummaryFromPlan(run, plan, evidenceIndex);
   saveRun(cwd, run);
+  savePrototypeContract(cwd, run);
   if (onProgress) await onProgress("Evidence evaluation complete", run, plan, evidenceIndex);
   return { run, plan, evidenceIndex, risk, verdictResult };
 }
 
 async function handleCodeCruise(letta, ctx) {
   const cwd = normalizeCwd(ctx.cwd);
-  const input = String(ctx.args ?? "").trim();
-  if (isHelp(input)) return output(helpText());
+  const rawInput = String(ctx.args ?? "").trim();
+  if (isHelp(rawInput)) return output(helpText());
+  const { isPrototype, remaining } = extractPrototypeFlag(rawInput);
+  const input = remaining;
+  if (isHelp(input)) {
+    return isPrototype
+      ? output("Specify a task or `--handoff <file>` with `--prototype`.\n\n" + helpText())
+      : output(helpText());
+  }
 
   ensureStorage(cwd);
 
   if (input === "--resume") {
     const run = loadActiveRun(cwd);
     if (!run) return output("No active CruiseCode run. Start one with `/code-cruise \"task\"`.");
+    if (isPrototype && run.mode !== "prototype") {
+      return output("The active CruiseCode run is not in prototype mode. Start a prototype run with `/code-cruise --prototype \"task\"`.");
+    }
     const plan = loadPlan(cwd, run.run_id);
     const evidenceIndex = loadEvidenceIndex(cwd, run.run_id);
     if (!plan) return output("Active run has no plan.json. Run `/code-plan` first.");
@@ -1501,6 +2045,9 @@ async function handleCodeCruise(letta, ctx) {
   }
 
   if (input === "--verify-only") {
+    if (isPrototype) {
+      return output("`--prototype` cannot be combined with `--verify-only` in P0. Start a task or handoff so CruiseCode can write a Prototype Review Packet.");
+    }
     const result = await initializeRunFromTask(cwd, "Verify current git changes", "verify_only", { type: "verify_only" });
     const checked = await runCheckFlow(cwd, result.run, result.plan);
     updatePanel(letta, checked.run, checked.plan, checked.evidenceIndex);
@@ -1509,16 +2056,47 @@ async function handleCodeCruise(letta, ctx) {
 
   if (input.startsWith("--handoff ")) {
     const file = input.replace(/^--handoff\s+/, "").trim();
-    const { path, handoff } = readHandoffFile(cwd, file);
-    const result = await initializeRunFromHandoff(cwd, path, handoff);
+    let resolved;
+    try {
+      resolved = readHandoffFile(cwd, file);
+    } catch (error) {
+      if (!isPrototype || error?.kind !== "user_error") throw error;
+      return output([
+        `Cannot start prototype run: ${error.message}`,
+        "Prototype mode requires a valid handoff when `--handoff` is specified.",
+        "Run blocked with prototype_evidence_incomplete; CruiseCode did not fall back to a direct task.",
+        "Use `/code-cruise --prototype \"task\"` only when you intentionally want unverified direct-task UX input.",
+      ].join("\n"));
+    }
+    const result = isPrototype
+      ? await initializePrototypeRunFromHandoff(cwd, resolved.path, resolved.handoff)
+      : await initializeRunFromHandoff(cwd, resolved.path, resolved.handoff);
     return launchImplementation(letta, ctx, cwd, result.run, result.plan, result.evidenceIndex);
   }
 
   if (input.startsWith("--from-ux ")) {
     const uxRunId = input.replace(/^--from-ux\s+/, "").trim();
-    const { path, handoff } = resolveHandoffFromUx(cwd, uxRunId);
-    const result = await initializeRunFromHandoff(cwd, path, handoff);
+    let resolved;
+    try {
+      resolved = resolveHandoffFromUx(cwd, uxRunId);
+    } catch (error) {
+      if (!isPrototype || error?.kind !== "user_error") throw error;
+      return output([
+        `Cannot start prototype run: ${error.message}`,
+        "Prototype mode requires a valid handoff when `--from-ux` is specified.",
+        "Run blocked with prototype_evidence_incomplete; CruiseCode did not fall back to a direct task.",
+      ].join("\n"));
+    }
+    const result = isPrototype
+      ? await initializePrototypeRunFromHandoff(cwd, resolved.path, resolved.handoff)
+      : await initializeRunFromHandoff(cwd, resolved.path, resolved.handoff);
     return launchImplementation(letta, ctx, cwd, result.run, result.plan, result.evidenceIndex);
+  }
+
+  if (input === "--handoff" || input === "--from-ux") {
+    return output(isPrototype
+      ? "Cannot start prototype run: specify a file after `--handoff` or a run ID after `--from-ux`. Run blocked with prototype_evidence_incomplete."
+      : "Specify a file after `--handoff` or a run ID after `--from-ux`.");
   }
 
   if (input.startsWith("--auto") || input.startsWith("--loop")) {
@@ -1526,7 +2104,10 @@ async function handleCodeCruise(letta, ctx) {
   }
 
   const task = stripWrappingQuotes(input);
-  const result = await initializeRunFromTask(cwd, task);
+  if (isPrototype && !task) return output("Specify a task or `--handoff <file>` with `--prototype`.");
+  const result = isPrototype
+    ? await initializePrototypeRunFromTask(cwd, task)
+    : await initializeRunFromTask(cwd, task);
   return launchImplementation(letta, ctx, cwd, result.run, result.plan, result.evidenceIndex);
 }
 
@@ -1543,7 +2124,25 @@ async function handleCodePlan(letta, ctx) {
   }
   const task = input && !isHelp(input) ? stripWrappingQuotes(input) : run.brief?.task || run.title;
   const checks = buildCheckCommands(cwd);
-  const plan = buildPlanFromTask(task, checks);
+  let plan;
+  if (run.mode === "prototype") {
+    const prototype = run.prototype || createDirectTaskPrototypeContract();
+    if (["handoff", "cruiseux"].includes(run.source?.type) && run.source?.handoff_path) {
+      try {
+        const resolved = readHandoffFile(cwd, run.source.handoff_path);
+        plan = buildPrototypePlanFromHandoff(resolved.handoff, checks, prototype);
+      } catch (error) {
+        return output(`Cannot update Prototype Execution Contract: ${error.message}`);
+      }
+    } else {
+      plan = buildPrototypePlanFromTask(task, checks, prototype);
+    }
+    run.prototype = prototype;
+    run.prototype.review_packet.status = "not_generated";
+    run.prototype.review_packet.generated_at = null;
+  } else {
+    plan = buildPlanFromTask(task, checks);
+  }
   savePlan(cwd, run.run_id, plan);
   run.phase = "planned";
   run.verdict = "unreviewed";
@@ -1551,6 +2150,7 @@ async function handleCodePlan(letta, ctx) {
   run.brief.summary = task;
   updateRunSummaryFromPlan(run, plan, loadEvidenceIndex(cwd, run.run_id));
   saveRun(cwd, run);
+  savePrototypeContract(cwd, run);
   appendLedger(cwd, run, "plan_created", "Evidence Contract created/updated", { checks: checks.map((c) => c.id) });
   const evidenceIndex = loadEvidenceIndex(cwd, run.run_id);
   updatePanel(letta, run, plan, evidenceIndex);
@@ -1599,8 +2199,18 @@ async function handleCodeStatus(letta, ctx) {
 }
 
 function finalizeRunReport(cwd, run, plan, evidenceIndex) {
-  const verdictResult = calculateVerdict(run, plan, evidenceIndex);
+  if (run.mode === "prototype") refreshPrototypeCoverage(run, plan, evidenceIndex);
+  let verdictResult = calculateVerdict(run, plan, evidenceIndex);
   const execution = ensureExecution(run);
+  if (
+    run.mode === "prototype"
+    && ["prototype_ready_for_review", "prototype_evidence_collected_with_caveats"].includes(verdictResult.verdict)
+  ) {
+    verdictResult = {
+      verdict: "review_packet_ready",
+      reason: `Portable review packet prepared. ${verdictResult.reason}`,
+    };
+  }
   run.verdict = verdictResult.verdict;
   if (!unresolvedBlockers(run).length) run.phase = "closed";
   execution.status = "complete";
@@ -1613,20 +2223,59 @@ function finalizeRunReport(cwd, run, plan, evidenceIndex) {
     }
   }
   run.current_step_id = null;
+  if (run.mode === "prototype" && run.prototype) {
+    run.prototype.review_packet.status = "generated";
+    run.prototype.review_packet.generated_at = now();
+  }
   updateRunSummaryFromPlan(run, plan, evidenceIndex);
   savePlan(cwd, run.run_id, plan);
   saveRun(cwd, run);
+  savePrototypeContract(cwd, run);
   const lessonExport = buildLessonCandidates(cwd, run, plan, evidenceIndex, verdictResult);
   writeJson(paths(cwd, run.run_id).lessonCandidates, lessonExport);
-  const report = buildReportMarkdown(cwd, run, plan, evidenceIndex, verdictResult, lessonExport);
+  let prototypePacket = null;
+  if (run.mode === "prototype") {
+    prototypePacket = buildPrototypeReviewPacket(cwd, run, plan, evidenceIndex, verdictResult);
+    writeJson(paths(cwd, run.run_id).prototypeReviewPacketJson, prototypePacket.packet);
+    writeText(paths(cwd, run.run_id).prototypeReviewPacketMd, prototypePacket.markdown);
+    const packetEvidence = loadEvidenceIndex(cwd, run.run_id);
+    upsertEvidence(packetEvidence, {
+      id: "ev-prototype-review-packet",
+      type: "prototype_review_packet",
+      path: "prototype-review-packet.md",
+      status: "collected",
+    });
+    saveEvidenceIndex(cwd, run.run_id, packetEvidence);
+    evidenceIndex = packetEvidence;
+    updateRunSummaryFromPlan(run, plan, evidenceIndex);
+    savePlan(cwd, run.run_id, plan);
+    saveRun(cwd, run);
+    savePrototypeContract(cwd, run);
+    appendLedger(cwd, run, "prototype_review_packet_created", "Portable prototype review packet generated", {
+      json_path: "prototype-review-packet.json",
+      markdown_path: "prototype-review-packet.md",
+      ux_intent_status: run.prototype?.ux_input?.intent_status || "unknown",
+    });
+  }
+  const report = buildReportMarkdown(cwd, run, plan, evidenceIndex, verdictResult, lessonExport, prototypePacket);
   writeText(paths(cwd, run.run_id).report, report);
   appendLedger(cwd, run, "report_created", "Report generated", {
     report_path: "report.md",
     lesson_candidates_path: "lesson-candidates.json",
     lesson_candidates: lessonExport.candidates.length,
     verdict: run.verdict,
+    prototype_review_packet: Boolean(prototypePacket),
   });
-  return { run, plan, evidenceIndex, verdictResult, lessonExport, reportPath: paths(cwd, run.run_id).report };
+  return {
+    run,
+    plan,
+    evidenceIndex,
+    verdictResult,
+    lessonExport,
+    prototypePacket,
+    reportPath: paths(cwd, run.run_id).report,
+    prototypeReviewPacketPath: run.mode === "prototype" ? paths(cwd, run.run_id).prototypeReviewPacketMd : null,
+  };
 }
 
 async function handleCodeReport(letta, ctx) {
@@ -1644,6 +2293,7 @@ async function handleCodeReport(letta, ctx) {
     "CruiseCode Report created.",
     `Status: ${finalized.run.verdict}`,
     `Report: ${finalized.reportPath}`,
+    ...(finalized.prototypeReviewPacketPath ? [`Prototype review packet: ${finalized.prototypeReviewPacketPath}`] : []),
     `Lesson candidates: ${paths(cwd, run.run_id).lessonCandidates}`,
     "",
     "Next:",
@@ -1836,6 +2486,8 @@ function helpText() {
     "",
     "Commands:",
     "  /code-cruise \"task\"        Implement, track, verify, and report a coding task",
+    "  /code-cruise --prototype \"task\"  Implement a prototype with unverified direct-task UX input",
+    "  /code-cruise --prototype --handoff <file>  Implement a prototype from a read-only external handoff",
     "  /code-cruise --verify-only   Verify current git diff with checks",
     "  /code-cruise --resume        Resume implementation for the active run",
     "  /code-cruise --handoff <file> Implement from implementation-handoff.json",
@@ -1870,7 +2522,7 @@ export default function activate(letta) {
 
   if (letta.capabilities?.commands) {
     const commands = [
-      { id: "code-cruise", description: "Implement, track, verify, or resume a CruiseCode evidence-first coding run", args: "\"task\"|--verify-only|--resume|--handoff <file>", run: handleCodeCruise },
+      { id: "code-cruise", description: "Implement, track, verify, or resume a CruiseCode evidence-first coding run", args: "\"task\"|--prototype \"task\"|--prototype --handoff <file>|--verify-only|--resume|--handoff <file>", run: handleCodeCruise },
       { id: "code-plan", description: "Create or update the active CruiseCode Evidence Contract", args: "[task]", run: handleCodePlan },
       { id: "code-check", description: "Collect git diff and configured check evidence for the active CruiseCode run", args: "", run: handleCodeCheck },
       { id: "code-status", description: "Show the active CruiseCode run status", args: "[run-id]", run: handleCodeStatus },

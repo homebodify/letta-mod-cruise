@@ -190,6 +190,180 @@ test("code-cruise launches implementation, tracks real tools, and finalizes once
   }
 });
 
+test("prototype direct task creates an unverified Prototype Execution Contract", async () => {
+  const cwd = createProject();
+  const harness = createHarness();
+  const ctx = commandContext(cwd, '--mode prototype "Create app.js with a greeting"');
+
+  try {
+    const result = await harness.commands.get("code-cruise").run(ctx);
+    assert.equal(result.type, "prompt");
+    assert.match(result.content, /Prototype-mode boundary/);
+    assert.match(result.content, /Do not invent UX acceptance criteria/);
+
+    const active = JSON.parse(readFileSync(join(cwd, ".letta", "cruise-code", "active.json"), "utf8"));
+    const runDir = join(cwd, ".letta", "cruise-code", "runs", active.active_run_id);
+    const run = JSON.parse(readFileSync(join(runDir, "run.json"), "utf8"));
+    const plan = JSON.parse(readFileSync(join(runDir, "plan.json"), "utf8"));
+    const contract = JSON.parse(readFileSync(join(runDir, "prototype-contract.json"), "utf8"));
+
+    assert.equal(run.mode, "prototype");
+    assert.equal(run.phase, "active");
+    assert.equal(run.prototype.ux_input.source_type, "direct_task");
+    assert.equal(run.prototype.ux_input.intent_status, "unverified");
+    assert.equal(run.prototype.review_packet.ux_validation_claim, "unavailable");
+    assert.deepEqual(run.prototype.ux_input.criteria_refs, []);
+    assert.equal(contract.mode, "prototype");
+    assert.equal(contract.ux_input.intent_status, "unverified");
+    assert.equal(plan.mode, "prototype");
+    assert.deepEqual(plan.coverage_map, []);
+    assert.equal(plan.evidence_plan.visual, "review_required");
+  } finally {
+    harness.dispose();
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("prototype handoff preserves external UX references as read-only coverage", async () => {
+  const cwd = createProject();
+  const harness = createHarness();
+  const handoffPath = join(cwd, "external-handoff.json");
+  writeFileSync(handoffPath, JSON.stringify({
+    readiness: { status: "implementation_ready" },
+    brief: { title: "Patient scan flow", problem: "Reduce touches", approved_direction: "Scan after login" },
+    acceptance_criteria: [
+      { id: "ux-ac-001", text: "Camera is ready after login.", evidence_required: ["git_diff"] },
+    ],
+    non_goals: ["Do not redesign login."],
+    constraints: ["Preserve current scan behavior."],
+    open_questions: [],
+    scenarios: [{ id: "ux-scn-001", states: [{ id: "ux-state-empty" }, { id: "ux-state-error" }] }],
+    states: [{ id: "ux-state-loading" }],
+    design_refs: [{ type: "figma", ref: "https://www.figma.com/file/example" }],
+  }, null, 2), "utf8");
+
+  try {
+    const result = await harness.commands.get("code-cruise").run(commandContext(cwd, "--prototype --handoff external-handoff.json"));
+    assert.equal(result.type, "prompt");
+
+    const active = JSON.parse(readFileSync(join(cwd, ".letta", "cruise-code", "active.json"), "utf8"));
+    const runDir = join(cwd, ".letta", "cruise-code", "runs", active.active_run_id);
+    const run = JSON.parse(readFileSync(join(runDir, "run.json"), "utf8"));
+    const plan = JSON.parse(readFileSync(join(runDir, "plan.json"), "utf8"));
+
+    assert.equal(run.mode, "prototype");
+    assert.equal(run.prototype.ux_input.source_type, "external_handoff");
+    assert.equal(run.prototype.ux_input.intent_status, "inherited_read_only");
+    assert.deepEqual(run.prototype.ux_input.criteria_refs, ["ux-ac-001"]);
+    assert.deepEqual(run.prototype.ux_input.scenario_refs, ["ux-scn-001"]);
+    assert.deepEqual(run.prototype.ux_input.state_refs, ["ux-state-loading", "ux-state-empty", "ux-state-error"]);
+    assert.equal(run.prototype.review_packet.ux_validation_claim, "inherited");
+    assert.equal(plan.acceptance_criteria[0].ux_ref, "ux-ac-001");
+    assert.deepEqual(plan.coverage_map, [{
+      ux_ref: "ux-ac-001",
+      implementation_surface: null,
+      evidence_status: "planned",
+    }]);
+  } finally {
+    harness.dispose();
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("prototype explicit invalid handoff blocks without direct-task fallback", async () => {
+  const cwd = createProject();
+  const harness = createHarness();
+
+  try {
+    const result = await harness.commands.get("code-cruise").run(commandContext(cwd, "--prototype --handoff missing-handoff.json"));
+    assert.equal(result.type, "output");
+    assert.match(result.output, /Cannot start prototype run/);
+    assert.match(result.output, /prototype_evidence_incomplete/);
+    assert.match(result.output, /did not fall back to a direct task/);
+    assert.equal(existsSync(join(cwd, ".letta", "cruise-code", "active.json")), false);
+  } finally {
+    harness.dispose();
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("prototype malformed handoff blocks with a schema error", async () => {
+  const cwd = createProject();
+  const harness = createHarness();
+  writeFileSync(join(cwd, "bad-handoff.json"), JSON.stringify({ readiness: { status: "implementation_ready" } }), "utf8");
+
+  try {
+    const result = await harness.commands.get("code-cruise").run(commandContext(cwd, "--prototype --handoff bad-handoff.json"));
+    assert.equal(result.type, "output");
+    assert.match(result.output, /Cannot start prototype run/);
+    assert.match(result.output, /Handoff is missing required field/);
+    assert.match(result.output, /prototype_evidence_incomplete/);
+    assert.equal(existsSync(join(cwd, ".letta", "cruise-code", "active.json")), false);
+  } finally {
+    harness.dispose();
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("prototype finalization writes a portable review packet with explicit limitations", async () => {
+  const cwd = createProject();
+  const harness = createHarness();
+  const ctx = commandContext(cwd, '--prototype "Create app.js with a greeting"');
+
+  try {
+    await harness.commands.get("code-cruise").run(ctx);
+    writeFileSync(join(cwd, "app.js"), "export const greeting = 'hello';\n", "utf8");
+    await harness.events.get("tool_start")({
+      agentId: "agent-cruise",
+      conversationId: "conv-cruise",
+      toolCallId: "prototype-edit",
+      toolName: "ApplyPatch",
+      args: { path: "app.js" },
+    }, ctx);
+    await harness.events.get("tool_end")({
+      agentId: "agent-cruise",
+      conversationId: "conv-cruise",
+      toolCallId: "prototype-edit",
+      toolName: "ApplyPatch",
+      args: { path: "app.js" },
+      status: "success",
+      output: "updated app.js",
+    }, ctx);
+
+    const turnResult = await harness.events.get("turn_end")({
+      agentId: "agent-cruise",
+      conversationId: "conv-cruise",
+      stopReason: "end_turn",
+      assistantMessage: "Implemented app.js",
+    }, ctx);
+    assert.match(turnResult.continue, /CruiseCode finished automatic evidence collection/);
+
+    const active = JSON.parse(readFileSync(join(cwd, ".letta", "cruise-code", "active.json"), "utf8"));
+    const runDir = join(cwd, ".letta", "cruise-code", "runs", active.active_run_id);
+    const run = JSON.parse(readFileSync(join(runDir, "run.json"), "utf8"));
+    const packet = JSON.parse(readFileSync(join(runDir, "prototype-review-packet.json"), "utf8"));
+    const evidence = JSON.parse(readFileSync(join(runDir, "evidence", "index.json"), "utf8"));
+    const report = readFileSync(join(runDir, "report.md"), "utf8");
+
+    assert.equal(run.verdict, "review_packet_ready");
+    assert.equal(run.prototype.review_packet.status, "generated");
+    assert.ok(existsSync(join(runDir, "prototype-review-packet.md")));
+    assert.equal(evidence.items.find((item) => item.type === "prototype_review_packet")?.status, "collected");
+    assert.equal(packet.mode, "prototype");
+    assert.equal(packet.ux_validation_claim, "unavailable");
+    assert.ok(packet.evidence_matrix.some((entry) => entry.dimension === "Buildability" && entry.result === "passed"));
+    assert.ok(packet.evidence_matrix.some((entry) => entry.dimension === "Visual" && entry.result === "not_assessed"));
+    assert.match(report, /## UX Input Status/);
+    assert.match(report, /## Evidence Matrix/);
+    assert.match(report, /## Limitations/);
+    assert.match(report, /## Portable Review Packet/);
+    assert.match(report, /UX validation claim: unavailable/);
+  } finally {
+    harness.dispose();
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("events from another conversation cannot advance an active run", async () => {
   const cwd = createProject();
   const harness = createHarness();

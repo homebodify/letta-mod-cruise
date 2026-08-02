@@ -1,6 +1,6 @@
 # CruiseCode
 
-[English](https://github.com/homebodify/letta-mode-cruisecode) | [한국어](https://github.com/homebodify/letta-mode-cruisecode/blob/main/README.ko.md)
+[English](https://github.com/homebodify/letta-mod-cruisecode) | [한국어](https://github.com/homebodify/letta-mod-cruisecode/blob/main/README.ko.md)
 
 CruiseCode is an evidence-first coding workflow mod for Letta Code.
 
@@ -90,8 +90,8 @@ This repository does **not** include local run state or evidence artifacts.
 Tangled repositories are installed in two steps: clone the repo, then install the local package.
 
 ```bash
-git clone https://tangled.org/homebodify.tngl.sh/letta-mode-cruisecode
-letta install ./letta-mode-cruisecode
+git clone https://tangled.org/homebodify.tngl.sh/letta-mod-cruisecode letta-mod-cruisecode
+letta install ./letta-mod-cruisecode
 ```
 
 Then reload active Letta Code sessions:
@@ -109,9 +109,9 @@ Verify commands are available:
 If your Letta Code version does not support local package install, copy the mod file manually:
 
 ```bash
-git clone https://tangled.org/homebodify.tngl.sh/letta-mode-cruisecode
+git clone https://tangled.org/homebodify.tngl.sh/letta-mod-cruisecode letta-mod-cruisecode
 mkdir -p ~/.letta/mods
-cp letta-mode-cruisecode/mods/index.ts ~/.letta/mods/cruise-code.js
+cp letta-mod-cruisecode/mods/index.ts ~/.letta/mods/cruise-code.js
 ```
 
 Then run `/reload`.
