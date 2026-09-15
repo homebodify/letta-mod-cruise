@@ -1,3 +1,4 @@
+// Historical tests; paths retained as historical data, not part of the new test runner.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";

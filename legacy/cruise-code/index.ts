@@ -1,5 +1,5 @@
 /**
- * CruiseCode — evidence-first coding workflow mod for Letta Code.
+ * Archived CruiseCode — reference only; not registered or distributed by Cruise.
  *
  * Commands:
  *   /code-cruise "task" | --prototype "task" | --prototype --handoff <file>

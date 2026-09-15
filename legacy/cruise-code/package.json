@@ -1,0 +1,48 @@
+{
+  "name": "cruise-code-historical",
+  "version": "0.3.1",
+  "description": "Evidence-first Letta Code mod that executes coding tasks and bounded prototypes, tracks live progress, verifies changes, and writes portable review packets.",
+  "author": "homebodify",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs"
+  },
+  "keywords": [
+    "letta-package",
+    "letta-mod",
+    "letta-code",
+    "coding-agent",
+    "evidence-first",
+    "verification",
+    "ux-handoff",
+    "prototype",
+    "review-packet",
+    "cruise-code"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://tangled.org/homebodify.tngl.sh/letta-mod-cruisecode"
+  },
+  "files": [
+    "README.md",
+    "README.ko.md",
+    "MOD.md",
+    "mods",
+    "tests"
+  ],
+  "letta": {
+    "manifestVersion": 1,
+    "mods": [
+      "./mods/index.ts"
+    ],
+    "capabilities": [
+      "commands",
+      "ui.panels",
+      "events.tools",
+      "events.turns"
+    ],
+    "engines": {
+      "lettaCodeCli": ">=0.27.29"
+    }
+  }
+}

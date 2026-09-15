@@ -1,225 +1,72 @@
-# CruiseCode
+# Cruise
 
-[English](https://github.com/homebodify/letta-mod-cruisecode) | [한국어](https://github.com/homebodify/letta-mod-cruisecode/blob/main/README.ko.md)
+[English](README.md) | [한국어](README.ko.md)
 
-CruiseCode is an evidence-first coding workflow mod for Letta Code.
+One entry point for UX discovery, scoped implementation, and follow-up changes. Run only the process the change needs; verify what you claim.
 
-It turns implementation tasks and UX handoffs into executed code changes with a verifiable contract, live progress, evidence, verdict, and report.
+**Local alpha — not publicly released.** The author's local installation has switched to Cruise with rollback backups; original repositories and run records remain intact. See [installation validation](docs/local-installation.md). This repository retains CruiseCode history and incorporates CruiseUX workflow guidance; see [provenance](NOTICE.md).
 
-```text
-No evidence → no verified
-```
+## Commands
 
-## What it adds
+| Command | Purpose |
+| --- | --- |
+| `/cruise <request>` | Explore, review, implement, or make a partial change |
+| `/cruise status` | Inspect state and evidence freshness without a model call |
+| `/cruise resume` | Resume unfinished or newly stale work |
+| `/cruise check` | Execute approved checks and write a report without a model call |
+| `/cruise help` | Show short help locally |
 
-| Command | Purpose | Best used when |
-| --- | --- | --- |
-| `/code-cruise "task"` | Starts the coding agent, tracks progress, verifies the result, and writes a report | You want CruiseCode to implement a task end to end |
-| `/code-cruise --prototype "task"`<br>`/code-cruise --mode prototype "task"` | Builds a bounded prototype from a direct task and writes a portable review packet | You need technical prototype evidence without a UX handoff |
-| `/code-cruise --prototype --handoff <file>` | Builds a prototype from a read-only implementation handoff | You already have UX criteria to trace into implementation evidence |
-| `/code-cruise --verify-only` | Verifies the current git diff with available checks | You already changed code and want evidence/reporting |
-| `/code-cruise --resume` | Shows the active run | You want to continue or inspect the current run |
-| `/code-cruise --handoff <file>` | Creates a run from `implementation-handoff.json` | You are continuing from a UX/product handoff |
-| `/code-plan [task]` | Creates or updates the Evidence Contract | The task criteria or checks need to be clarified |
-| `/code-check` | Collects git/check evidence | You want proof before claiming progress |
-| `/code-status` | Shows run state, evidence, blockers, and next action | You need a readable dashboard |
-| `/code-report` | Generates `report.md` | You need a handoff or verification summary |
-| `/code-panel hide\|show\|status` | Controls the progress panel | You want to hide, restore, or inspect panel behavior |
-
-## Core idea
-
-CruiseCode separates workflow state from verification judgment.
+Only `/cruise` is registered. UX interviews, research, alternatives, specification, and review remain available internally—not as separate slash commands.
 
 ```text
-phase   = where the run is in the workflow
-verdict = what the evidence says about trust/completion
+/cruise Review the onboarding flow; do not implement yet
+/cruise Fix the empty-search result message
+/cruise resume
+/cruise check
 ```
 
-A run can be complete enough to report but still not be verified. That distinction is the point.
+Natural-language routing is a convenience hint, not permission. Unclear requests start with inspection. This alpha asks once for the exact initial implementation contract, including check commands; it reuses that approval until the request or contract changes. There are no per-stage gates. Keyword-based silent approval is intentionally not implemented.
 
-## Automatic execution
+## Implemented
 
-`/code-cruise "task"` now starts a real agent turn instead of stopping after plan creation.
+- Shared versioned contract: stable requirement IDs, constraints, non-goals and explicit check bindings.
+- Partial-change guidance and parent context reuse; historical evidence is not copied as current proof.
+- Real subprocess evidence with timeouts, cancellation, output caps, explicit assertions and requirement coverage.
+- Contract/workspace fingerprinting and artifact hashes: stale or missing evidence cannot silently remain verified.
+- Separate phase and verdict: failed or incomplete work remains resumable.
+- Explicit checkpoints and finish: no success on turn-end, clarification or interruption.
+- Per-conversation active runs, exclusive workspace ownership and a cross-process operation lock.
+- Exact-contract approval through an always-ask tool; explicit ownership takeover.
+- Read-only external JSON handoff import. Legacy readiness/approval never becomes current verification.
+- Three agent tools: `cruise_update`, `cruise_approve`, `cruise_verify`.
 
-```text
-task prompt
-→ Evidence Contract
-→ inspect project
-→ edit files
-→ run relevant checks
-→ collect git/check evidence
-→ calculate verdict
-→ generate report.md
-→ show final summary
-```
-
-The progress panel is event-driven. Its current activity and step count update from the actual tools used by the coding agent. The run is bound to the conversation and agent that started it, so tool events from another conversation cannot advance or finalize it.
-
-The panel automatically closes 10 seconds after a run reaches `Closed`, `Blocked`, or `Cancelled`. Use `/code-panel hide` to keep it hidden for the current project and `/code-panel show` to restore it.
-
-Automatic finalization runs once when the implementation turn ends. It collects staged and unstaged git changes, records untracked filenames without copying their contents, runs detected checks, generates the report, and injects one final-summary turn. CruiseCode does not commit or push unless the user explicitly asks the coding agent to do so.
-
-## Prototype evidence mode
-
-Prototype mode keeps CruiseCode focused on implementation evidence rather than becoming another prompt-to-app generator.
-
-```text
-/code-cruise --prototype "Build a project dashboard prototype"
-/code-cruise --mode prototype "Build a project dashboard prototype"  # alias
-/code-cruise --prototype --handoff implementation-handoff.json
-```
-
-- **Direct task:** CruiseCode records `ux_intent_status: unverified`, implements the requested prototype, and reports technical evidence only. It does not claim that UX was validated.
-- **Handoff:** CruiseCode treats valid external or CruiseUX `implementation-handoff.json` input as read-only. It preserves inherited criterion references, records coverage, and returns a review packet.
-- **Boundary:** CruiseCode does not create UX criteria, invent user scenarios, or make a UX/product decision. A human or separate UX workflow interprets the resulting evidence.
-
-Prototype mode writes a `prototype-contract.json`, then finishes with portable `prototype-review-packet.md` and `prototype-review-packet.json` artifacts beside the normal report. `--verify-only` is intentionally a standard-run command and cannot be combined with `--prototype`.
-
-## Storage
-
-CruiseCode writes project-local state under the current working directory:
-
-```text
-.letta/cruise-code/
-  config.json
-  active.json
-  runs/
-    <run-id>/
-      run.json
-      plan.json
-      prototype-contract.json       # prototype runs only
-      ledger.jsonl
-      evidence/
-        index.json
-        git-status.txt
-        git-diff-stat.txt
-        git-diff.patch
-        typecheck.txt
-        test.txt
-        lint.txt
-        build.txt
-      report.md
-      prototype-review-packet.md    # prototype runs only
-      prototype-review-packet.json  # prototype runs only
-      lesson-candidates.json
-```
-
-This repository does **not** include local run state or evidence artifacts.
-
-## Installation
-
-Tangled repositories are installed in two steps: clone the repo, then install the local package.
-
-```bash
-git clone https://tangled.org/homebodify.tngl.sh/letta-mod-cruisecode letta-mod-cruisecode
-letta install ./letta-mod-cruisecode
-```
-
-Then reload active Letta Code sessions:
-
-```text
-/reload
-```
-
-Verify commands are available:
-
-```text
-/code-cruise help
-```
-
-If your Letta Code version does not support local package install, copy the mod file manually:
-
-```bash
-git clone https://tangled.org/homebodify.tngl.sh/letta-mod-cruisecode letta-mod-cruisecode
-mkdir -p ~/.letta/mods
-cp letta-mod-cruisecode/mods/index.ts ~/.letta/mods/cruise-code.js
-```
-
-Then run `/reload`.
-
-Use CruiseCode from a project directory, not from your home directory:
-
-```text
-/code-cruise "Fix login redirect after expired session"
-```
+`verified` means all required **declared** checks and requirements have fresh successful evidence. The agent/human still must judge whether those assertions prove the requested behavior. A typecheck does not implicitly cover behavior. Technical verification does not establish usability, clinical validity or user acceptance.
 
 ## Development
 
-The public package is intentionally small:
-
-```text
-MOD.md
-README.md
-README.ko.md
-mods/index.ts
-package.json
-tests/cruise-code.test.mjs
-```
-
-For a quick source/package check:
+Node 22+ and Git are required. There are no package dependencies and no install step for tests.
 
 ```bash
 npm test
-tmp=$(mktemp -d)
-cp mods/index.ts "$tmp/mod.mjs"
-node --check "$tmp/mod.mjs"
-rm -rf "$tmp"
+npm run check
 npm pack --dry-run
 ```
 
-## CruiseUX and external handoffs
+Tests create temporary Git fixtures without commits or Git configuration changes. They mock the host API and run real local verification processes; they are not a live Desktop acceptance test.
 
-CruiseUX is a useful upstream producer, not a runtime dependency. CruiseCode can also consume any valid external `implementation-handoff.json`.
+Use the complete package directory; `mods/index.mjs` imports `src/` and reads bundled skill files. **Do not copy the entrypoint alone to global mods.** Installation and old-mod deactivation are a separate, user-approved step. `private: true` blocks accidental npm publication pending licensing/publication review. The API targets Letta Code 0.32.1; verify the live host before installation.
 
-```text
-CruiseUX   → UX framing, research, interview, ideation, spec, review
-CruiseCode → implementation, evidence, checks, verdict, report
-```
+## Storage and limits
 
-The intended handoff file is:
+The selected Git repository/worktree root contains private state at `.letta/cruise/`: owner-specific active pointers, `owner.json`, and `runs/<uuid>/{run.json,report.md,evidence/*.log}`.
 
-```text
-implementation-handoff.json
-```
+- No startup state writes, background loops, auto-commits, auto-pushes, dependency installs or remote calls are introduced by the lifecycle.
+- Checks execute trusted project scripts. String filters are not a sandbox and cannot prove arbitrary subprocess behavior safe. Host permissions still apply. Colocated hashes catch inconsistencies, not a same-user attacker able to rewrite both state and artifacts.
+- Fingerprints cover Git-listed tracked and untracked content, excluding `.letta` and ignored untracked files. Known secrets use metadata, not content reads. Runtime/DB/environment state needs explicit observations and rechecks; it is not certified by file fingerprints.
+- Whole-workspace hashing is conservative: unrelated tracked changes can invalidate evidence. Above 64 MiB of content, or on submodules/external symlinks, verification fails closed. Dependency-scoped optimization is deferred.
+- Output logs may contain secrets. Keep `.letta/` out of version control. Cruise itself does not upload source/logs.
+- A crash may leave `operation.lock`. Confirm the recorded process has stopped before manual recovery. Takeover never bypasses an active operation lock.
+- Select the intended Git root/worktree before invoking Cruise. Active runs do not automatically follow cwd switches to another worktree in this alpha.
+- No automatic legacy-run migration, manual evidence approval workflow, parallel scheduler or repair loop is claimed. Human/visual review remains explicit workflow work, not implicitly certified evidence.
 
-For prototype handoffs, CruiseCode preserves original UX acceptance criteria such as `ux-ac-001` as read-only `ux_ref` values, so review packets can connect UX intent to implementation evidence without claiming a UX verdict.
-
-## muscle-memory integration
-
-CruiseCode can cooperate with [`muscle-memory`](https://github.com/letta-ai/mods/tree/main/packages/muscle-memory) without taking over skill management.
-
-```text
-CruiseUX      → writes UX intent and implementation handoff
-CruiseCode    → writes evidence, verdict, report, and reusable lesson candidates
-muscle-memory → distills/deduplicates/sanitizes/publishes skills when a lesson is actually reusable
-```
-
-`/code-report` writes `lesson-candidates.json` next to `report.md` and adds a `Reusable Lesson Candidates` section to the report. These are **not skills**. They are reviewable hints for `muscle-memory` or a human reviewer. CruiseCode does not write to the skill shelf, publish Custom Skills, or decide whether a lesson deserves graduation.
-
-Recommended conservative `muscle-memory` defaults while dogfooding CruiseCode:
-
-```bash
-MM_REFLECT=staged
-MM_CAPTURE=off
-MM_PUBLISH=off
-```
-
-## Safety
-
-Mods are trusted local code. Review the source before installing third-party mods.
-
-This mod performs local filesystem writes under the active project’s `.letta/cruise-code/` directory. After the user invokes `/code-cruise`, it observes that run's tool/turn events and runs local git/check commands during automatic finalization. It has no startup side effects and does not run background timers by itself.
-
-Do not commit private CruiseCode run state, evidence files, `.env` files, credentials, local diagnostics, or private project logs.
-
-If a mod breaks startup or command handling, recover with:
-
-```bash
-letta --no-mods
-# or
-LETTA_DISABLE_MODS=1 letta
-```
-
-Then remove or edit the mod package and run `/reload`.
-
-See MOD.md for the agent-facing behavioral contract.
+[Design](docs/design.md) · [Migration](docs/migration.md) · [Official Mod API](https://docs.letta.com/configuration/mods/index.md)

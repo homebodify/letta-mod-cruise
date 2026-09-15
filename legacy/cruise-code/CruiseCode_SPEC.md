@@ -1,4 +1,4 @@
-# CruiseCode Spec
+# CruiseCode Spec (historical; not the unified Cruise contract)
 
 CruiseCode is an evidence-first coding workflow mod for Letta Code.
 
