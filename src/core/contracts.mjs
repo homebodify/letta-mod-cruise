@@ -44,7 +44,7 @@ function unique(values, name) {
 
 /** Normalize the declarative contract. Commands are literal executable/argv, never shell templates. */
 export function validateContract(input) {
-  object(input, 'contract', ['schema_version', 'goal', 'intent', 'risk', 'requirements', 'non_goals', 'constraints', 'checks']);
+  object(input, 'contract', ['schema_version', 'goal', 'intent', 'risk', 'requirements', 'non_goals', 'constraints', 'checks', 'dependencies']);
   if (input.schema_version !== 1) throw new TypeError('schema_version must be 1');
   const goal = string(input.goal, 'goal');
   if (!['inspect', 'implement'].includes(input.intent)) throw new TypeError('invalid intent');
@@ -84,7 +84,9 @@ export function validateContract(input) {
   unique(checks.map(entry => entry.id), 'checks');
   if (checks.length > 20) throw new TypeError('at most 20 checks are allowed');
   if (input.intent === 'inspect' && checks.length) throw new TypeError('inspect cannot declare checks');
-  return { schema_version: 1, goal, intent: input.intent, risk: input.risk, requirements, non_goals: strings('non_goals'), constraints: strings('constraints'), checks };
+  // Omission retains legacy contract hashes; adding/changing declarations invalidates approval.
+  const dependencies = own(input, 'dependencies') ? { dependencies: strings('dependencies') } : {};
+  return { schema_version: 1, goal, intent: input.intent, risk: input.risk, requirements, non_goals: strings('non_goals'), constraints: strings('constraints'), checks, ...dependencies };
 }
 
 export function contractHash(contract) {

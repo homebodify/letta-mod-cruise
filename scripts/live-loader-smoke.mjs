@@ -15,7 +15,7 @@ const home = join(sandbox, 'home'), cwd = join(sandbox, 'project');
 mkdirSync(join(home, '.letta/mods/packages/npm'), { recursive: true });
 mkdirSync(cwd);
 cpSync(installed, join(home, '.letta/mods/packages/npm/cruise'), { recursive: true });
-writeFileSync(join(home, '.letta/mods/packages.json'), JSON.stringify({ packages: [{ source: 'npm:cruise', version: '0.1.0-alpha.1', enabled: true, root: 'packages/npm/cruise', entries: ['./mods/index.mjs'] }] }));
+writeFileSync(join(home, '.letta/mods/packages.json'), JSON.stringify({ packages: [{ source: 'npm:cruise', version: '0.1.0-alpha.2', enabled: true, root: 'packages/npm/cruise', entries: ['./mods/index.mjs'] }] }));
 writeFileSync(join(home, '.letta/settings.json'), JSON.stringify({ preferredBackendMode: 'local', createDefaultAgents: false }));
 writeFileSync(join(cwd, '.gitignore'), '.letta/\n');
 execFileSync('git', ['init', '-q', cwd]);

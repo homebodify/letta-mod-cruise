@@ -3,7 +3,7 @@ import { readFileSync, existsSync, realpathSync } from 'node:fs';
 import { join, resolve, relative, isAbsolute } from 'node:path';
 import { activeRun, loadRun, saveRun, newRun, identity, sameOwner, claim, release, locked, record, workspaceOwner, runPath, idPattern } from './core/store.mjs';
 import { validateContract, reviseContract, evaluateRun, contractHash } from './core/contracts.mjs';
-import { snapshotWorkspace, executeChecks } from './core/evidence.mjs';
+import { snapshotWorkspace, executeChecks, validateDependencies } from './core/evidence.mjs';
 import { renderStatus, writeReport } from './core/report.mjs';
 import { classifyRequest, workflowPrompt, help } from './workflow.mjs';
 
@@ -43,6 +43,8 @@ async function assess(cwd, run, snapshot = null) {
   if (!run.contract) return { phase: run.phase, verdict: 'needs_evidence', coverage: [], reasons: ['No concrete contract has been recorded.'] };
   if (run.contract_request_revision !== run.request_revision) return { phase: 'planned', verdict: 'needs_evidence', coverage: [], reasons: ['Reconcile the contract with the latest request before continuing.'] };
   const current = snapshot ?? await snapshotWorkspace(cwd);
+  try { validateDependencies(current, run.contract); }
+  catch (error) { return { phase: 'paused', verdict: 'needs_evidence', coverage: [], reasons: [error.message] }; }
   return evaluateRun({ ...run, evidence: checkedArtifacts(cwd, run) }, current.fingerprint);
 }
 function applyEvaluation(run, evaluation) {
@@ -250,6 +252,7 @@ const contractSchema = {
     intent: { type: 'string', enum: ['inspect', 'implement'] }, risk: { type: 'string', enum: ['low', 'high'] },
     requirements: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { id: { type: 'string' }, text: { type: 'string' }, required: { type: 'boolean' } }, required: ['id', 'text', 'required'] } },
     non_goals: strings, constraints: strings,
+    dependencies: { ...strings, description: 'Relevant local dependency files relative to selected cwd. Required for subdirectory implementation; [] explicitly declares no extra dependencies. Outside/ignored/secret/symlink paths cannot be certified; choose a containing scope instead.' },
     checks: { type: 'array', maxItems: 20, items: { type: 'object', additionalProperties: false, properties: {
       id: { type: 'string' }, label: { type: 'string' }, bin: { type: 'string' }, args: strings,
       requirement_ids: strings, required: { type: 'boolean' }, timeout_ms: { type: 'integer', minimum: 1, maximum: 300000 },

@@ -59,6 +59,24 @@ Check selection is semantic judgment, not deterministic proof: typecheck is not 
 and a passing command is not actual-user validation. Browser work uses Aside only,
 never Playwright, even through scripts. Cruise gates its acceptance, not all host tools.
 
+## Scoped-workspace compatibility
+The selected canonical cwd is now the evidence, check and run-store scope, including
+project subdirectories. Git-root ownership and operation locks still serialize the
+worktree. Existing root run paths and omitted-dependency contract hashes are unchanged;
+root runs without workspace identity remain readable, but old fingerprints do not
+match versioned identity-bound snapshots and must be recaptured through approved checks.
+Unversioned subdirectory or copied/relocated run state fails closed, without rewriting
+approval or history. Never hand-write a run to migrate it.
+
+Subdirectory implementation requires a human-reviewed `dependencies` array of relevant
+scope-relative local file paths; `[]` explicitly declares no additional dependencies.
+Dependencies outside scope, ignored files, missing files, symlinks and metadata-only
+secrets cannot be certified. Choose a containing scope for shared parent/sibling inputs;
+do not omit dependencies to avoid the unchanged 64 MiB cap. External runtime state and
+arbitrary script dependency graphs remain outside automatic fingerprint guarantees.
+Reload the host with `/reload` after an authorized installation update; this does not
+start a run or approve its contract.
+
 ## Before any later adoption
 Review the local diff, run project tests and official skill validation, and inspect
 the tool permission behavior and acceptance limitations. Installation, remote creation,

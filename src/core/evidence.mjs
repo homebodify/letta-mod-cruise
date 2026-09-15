@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { lstat, realpath, readlink, open, mkdir, readFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { workspaceIdentity, assertWorkspace } from './workspace.mjs';
 import path from 'node:path';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -28,18 +28,14 @@ async function git(cwd, args, allowMissing = false) {
 }
 
 async function rootOf(cwd) {
-  const root = await realpath(cwd);
-  if (root === await realpath(homedir())) throw new Error('Home directory is not an eligible workspace');
-  const gitRoot = (await git(root, ['rev-parse', '--show-toplevel'])).trimEnd();
-  if (await realpath(gitRoot) !== root) throw new Error('cwd must equal the Git repository/worktree root');
-  return root;
+  return workspaceIdentity(cwd).scope_root;
 }
 
 async function inventory(root) {
   const head = (await git(root, ['rev-parse', '--verify', '--quiet', 'HEAD'], true))?.trim() ?? null;
   const branch = (await git(root, ['symbolic-ref', '--quiet', '--short', 'HEAD'], true))?.trim() ?? null;
   if (!head && !branch) throw new Error('Invalid or unreadable HEAD');
-  const names = [...new Set((await git(root, ['ls-files', '-z', '--cached', '--others', '--exclude-standard'])).split('\0').filter(Boolean))]
+  const names = [...new Set((await git(root, ['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', '.'])).split('\0').filter(Boolean))]
     .filter(name => !excluded(name)).sort();
   return { head, branch, names };
 }
@@ -51,7 +47,8 @@ async function inventory(root) {
  * This is a local point-in-time check, not an atomic filesystem transaction.
  */
 export async function snapshotWorkspace(cwd) {
-  const root = await rootOf(cwd);
+  const workspace = workspaceIdentity(cwd);
+  const root = workspace.scope_root;
   const initial = await inventory(root);
   const files = [];
   let bytes = 0;
@@ -100,7 +97,8 @@ export async function snapshotWorkspace(cwd) {
     }
   }
   if (JSON.stringify(initial) !== JSON.stringify(await inventory(root))) throw new Error('Git state changed while snapshotting');
-  const status = await git(root, ['status', '--porcelain=v1', '-z', '--untracked-files=all']);
+  if (JSON.stringify(workspace) !== JSON.stringify(workspaceIdentity(cwd))) throw new Error('Workspace identity changed while snapshotting');
+  const status = await git(root, ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--', '.']);
   // Path-aware filtering also avoids counting evidence logs themselves as dirty.
   const records = status.split('\0');
   let dirty = false;
@@ -112,7 +110,16 @@ export async function snapshotWorkspace(cwd) {
       if (!excluded(records[++i] ?? '')) dirty = true;
     }
   }
-  return { fingerprint: digest(JSON.stringify({ head: initial.head, files })), head: initial.head, branch: initial.branch, dirty, files };
+  return { workspace, fingerprint: digest(JSON.stringify({ workspace, head: initial.head, files })), head: initial.head, branch: initial.branch, dirty, files };
+}
+
+export function validateDependencies(snapshot, contract) {
+  if (snapshot.workspace.scope !== '.' && contract.intent === 'implement' && !Array.isArray(contract.dependencies)) throw new Error('Scoped implementation requires explicit dependencies (scope-relative files; [] declares none outside the scope).');
+  for (const name of contract.dependencies ?? []) {
+    if (typeof name !== 'string' || path.isAbsolute(name) || name.includes('\\') || name.split('/').some(part => !part || part === '.' || part === '..')) throw new Error('Unsafe dependency path; select a scope containing all relevant dependencies.');
+    const file = snapshot.files.find(file => file.path === name);
+    if (!file || file.type !== 'file') throw new Error(`Dependency is not content-covered in this scope: ${name}. Outside, ignored, missing, secret and symlink dependencies cannot be certified.`);
+  }
 }
 
 async function evidenceDirectory(root, runId) {
@@ -200,8 +207,10 @@ function invoke(root, check, signal) {
  */
 export async function executeChecks(cwd, run, { signal } = {}) {
   if (!uuid.test(run?.run_id ?? '') || typeof run.contract_hash !== 'string' || !run.contract_hash || !Array.isArray(run.contract?.checks)) throw new Error('Invalid run');
+  if (run.workspace || run.baseline) assertWorkspace(cwd, run);
   const root = await rootOf(cwd);
   const snapshot = await snapshotWorkspace(root);
+  validateDependencies(snapshot, run.contract);
   const directory = await evidenceDirectory(root, run.run_id);
   const evidence = [];
   const logs = [];

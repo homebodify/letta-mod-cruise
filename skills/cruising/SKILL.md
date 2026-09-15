@@ -13,7 +13,8 @@ description: Coordinate scoped UX discovery, research, interviews, concepts, spe
   - [Code](references/code.md): contract details, project checks, implementation and acceptance.
   - [Delta](references/delta.md): narrow follow-up fixes retaining parent scope and requirement IDs.
 - Choose only needed activities. A review, interview, research brief, or tiny fix is not a full pipeline.
-- Start Cruise from the final selected Git root/worktree. Do not switch cwd during an active run: this alpha does not relocate run state across worktrees.
+- Start Cruise from the final selected project cwd inside a Git worktree (root or subdirectory). Evidence, run files and check cwd stay in that selected scope; Git-root owner/operation locks still prevent cross-scope bypass. Do not switch cwd during an active run or relocate its state.
+- For subdirectory implementation, explicitly declare contract `dependencies` as scope-relative local file paths (`[]` means no additional dependencies). Include all relevant shared inputs: outside/ignored/missing/secret/symlink dependencies cannot be certified. If a relevant dependency lies outside, choose a containing scope rather than omit it. Sibling edits are intentionally not evidence-covered; scripts and semantic relevance still require review. The 64 MiB cap remains unchanged.
 - Reuse known context; clarify only uncertainty that changes scope, risk, criteria, or the next decision.
 
 ## Contract before execution

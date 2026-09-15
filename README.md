@@ -58,15 +58,17 @@ Use the complete package directory; `mods/index.mjs` imports `src/` and reads bu
 
 ## Storage and limits
 
-The selected Git repository/worktree root contains private state at `.letta/cruise/`: owner-specific active pointers, `owner.json`, and `runs/<uuid>/{run.json,report.md,evidence/*.log}`.
+The selected cwd (Git root or project subdirectory) contains private state at `.letta/cruise/`: owner-specific active pointers and `runs/<uuid>/{run.json,report.md,evidence/*.log}`. Git-root `.letta/cruise/{owner.json,operation.lock}` coordinates the entire worktree, so changing subdirectories cannot bypass an unfinished owner or active operation. Takeover must be requested from the original scope.
 
 - No startup state writes, background loops, auto-commits, auto-pushes, dependency installs or remote calls are introduced by the lifecycle.
 - Checks execute trusted project scripts. String filters are not a sandbox and cannot prove arbitrary subprocess behavior safe. Host permissions still apply. Colocated hashes catch inconsistencies, not a same-user attacker able to rewrite both state and artifacts.
 - Fingerprints cover Git-listed tracked and untracked content, excluding `.letta` and ignored untracked files. Known secrets use metadata, not content reads. Runtime/DB/environment state needs explicit observations and rechecks; it is not certified by file fingerprints.
-- Whole-workspace hashing is conservative: unrelated tracked changes can invalidate evidence. Above 64 MiB of content, or on submodules/external symlinks, verification fails closed. Dependency-scoped optimization is deferred.
+- Evidence covers all Git-listed files under the selected cwd, with paths relative to that cwd; checks execute there. Siblings outside that scope are not read or certified. The unchanged 64 MiB content cap applies within the scope. Submodules and symlinks escaping the scope fail closed. Git HEAD and canonical Git-root/scope identity also bind the fingerprint.
+- Subdirectory implementation contracts must explicitly provide `dependencies`: relevant local dependency file paths relative to cwd (`[]` declares no additional dependencies). Every declared file must be content-covered inside the scope; traversal, absolute, ignored, missing, secret and symlink dependencies block certification. Shared parent/sibling dependencies require selecting a containing scope, not silently omitting them or increasing the cap. This declaration is human-reviewed and hash-bound; arbitrary scripts/import graphs, runtime state and semantic relevance are not inferred or sandboxed.
 - Output logs may contain secrets. Keep `.letta/` out of version control. Cruise itself does not upload source/logs.
 - A crash may leave `operation.lock`. Confirm the recorded process has stopped before manual recovery. Takeover never bypasses an active operation lock.
-- Select the intended Git root/worktree before invoking Cruise. Active runs do not automatically follow cwd switches to another worktree in this alpha.
+- Select the intended project cwd within its Git worktree before invoking Cruise. No directory moves or nested Git initialization are needed. Run identity binds canonical Git root and selected scope; active runs do not relocate across cwd/worktree changes. Symlink aliases of the same cwd share identity.
+- Existing root runs remain readable without rewriting contracts or approvals, but versioned scope fingerprints invalidate old evidence until checks are rerun. Unversioned subdirectory state and copied runs fail closed; there is no automatic state migration.
 - No automatic legacy-run migration, manual evidence approval workflow, parallel scheduler or repair loop is claimed. Human/visual review remains explicit workflow work, not implicitly certified evidence.
 
 [Design](docs/design.md) · [Migration](docs/migration.md) · [Official Mod API](https://docs.letta.com/configuration/mods/index.md)

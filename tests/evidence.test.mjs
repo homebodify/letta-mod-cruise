@@ -68,10 +68,10 @@ test('known secret contents never enter snapshot; stat changes invalidate', asyn
   assert.match(log, /may contain secrets/);
 });
 
-test('rejects nested directories, home, external symlinks and excessive bytes', async t => {
+test('accepts nested directories but rejects home, external symlinks and excessive bytes', async t => {
   const root = await fixture(t);
   await mkdir(path.join(root, 'nested'));
-  await assert.rejects(snapshotWorkspace(path.join(root, 'nested')), /root/);
+  assert.equal((await snapshotWorkspace(path.join(root, 'nested'))).workspace.scope, 'nested');
   await assert.rejects(snapshotWorkspace(homedir()), /Home/);
   await symlink(homedir(), path.join(root, 'outside'));
   await exec('git', ['-C', root, 'add', 'outside']);

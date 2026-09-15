@@ -26,6 +26,7 @@ Submit `cruise_update({action: "contract", contract: ...})` with:
   requirements: [{id: string, text: string, required: boolean}],
   non_goals: string[],
   constraints: string[],
+  dependencies: string[], // required for subdirectory implementation: scope-relative local files
   checks: [{
     id: string, label: string, bin: string, args: string[],
     requirement_ids: string[], required: boolean, timeout_ms: number,

@@ -10,7 +10,7 @@ assert.ok(process.argv[2], 'Pass the installed package root.');
 const installed = resolve(process.argv[2]);
 const temp = mkdtempSync(join(tmpdir(), 'cruise-installed-tests-'));
 try {
-  const files = ['contracts.test.mjs', 'evidence.test.mjs', 'cruise.test.mjs'].map(name => {
+  const files = ['contracts.test.mjs', 'evidence.test.mjs', 'cruise.test.mjs', 'scoped-workspace.test.mjs'].map(name => {
     const source = readFileSync(new URL(`../tests/${name}`, import.meta.url), 'utf8');
     // Only module locations change. Test bodies, assertions and fixtures stay intact.
     const test = source.replace(/(['"])\.\.\/src\/([^'"]+)\1/g, (_match, _quote, path) => JSON.stringify(pathToFileURL(join(installed, 'src', path)).href));
