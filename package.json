@@ -2,6 +2,7 @@
   "name": "cruise",
   "version": "0.1.0-alpha.2",
   "private": true,
+  "license": "MIT",
   "description": "One-entry UX and coding workflow with scoped changes and requirement-linked evidence for Letta Code.",
   "author": "homebodify",
   "type": "module",

@@ -40,7 +40,7 @@ Natural-language routing is a convenience hint, not permission. Unclear requests
 - Read-only external JSON handoff import. Legacy readiness/approval never becomes current verification.
 - Three agent tools: `cruise_update`, `cruise_approve`, `cruise_verify`.
 
-`verified` means all required **declared** checks and requirements have fresh successful evidence. The agent/human still must judge whether those assertions prove the requested behavior. A typecheck does not implicitly cover behavior. Technical verification does not establish usability, clinical validity or user acceptance.
+`verified` means all required **declared** checks and requirements have fresh successful evidence. The agent/human still must judge whether those assertions prove the requested behavior. A typecheck does not implicitly cover behavior. Technical verification does not establish usability or user acceptance.
 
 ## Development
 

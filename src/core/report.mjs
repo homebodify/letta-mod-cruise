@@ -13,7 +13,7 @@ export function renderStatus(run, evaluation) {
     ...(evaluation?.reasons ?? []),
     ...(run.blockers ?? []).filter(b => b.status !== 'resolved').map(b => `Blocked: ${b.reason}`),
     run.summary ? `Checkpoint: ${run.summary}` : '',
-    'Technical verification does not establish usability, clinical validity, or user acceptance.',
+    'Technical verification does not establish usability or user acceptance.',
   ].filter(Boolean).join('\n');
 }
 export function writeReport(cwd, run, evaluation) {

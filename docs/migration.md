@@ -1,12 +1,11 @@
-# Migration notes — local-only alpha
+# Migration notes
 
-## What exists locally
-This work unifies CruiseCode and imported CruiseUX guidance in a local repository.
+## What exists
+This work unifies CruiseCode and imported CruiseUX guidance in one repository.
 CruiseCode Git history is inherited; UX protocol provenance is the installed original
-`/Users/homebodify/.letta/mods/cruise-ux.js`, not a merged UX history.
-No remote was created or pushed, no installation was changed, and the original
-repositories and installed mods remain intact. Treat this as alpha development,
-not an announcement of a deployed replacement.
+loose CruiseUX mod file, not a merged UX history.
+The original repositories and installed mods remain intact as archives. Treat this as
+alpha development, not an announcement of a deployed replacement.
 
 ## Request translation, not aliases
 Use `/cruise <request>` and controls `status`, `resume`, `check`, `help`.
