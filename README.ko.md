@@ -1,10 +1,12 @@
 # Cruise
 
-[English](README.md) | [한국어](README.ko.md)
+[English](https://github.com/homebodify/letta-mod-cruise/blob/main/README.md) | [한국어](https://github.com/homebodify/letta-mod-cruise/blob/main/README.ko.md)
 
 UX 탐색, 구현, 부분 수정을 하나의 진입점으로 연결합니다. 필요한 과정만 실행하고 완료 주장은 증거로 확인합니다.
 
-**로컬 알파: 아직 공개하지 않았습니다.** 작성자의 로컬 설치는 복구용 백업을 남기고 Cruise로 전환했습니다. 원본 저장소와 작업 기록은 그대로입니다. [설치 검증](docs/local-installation.md) · [출처](NOTICE.md)
+Cruise는 Letta Code mod로, 하나의 변경을 끝까지 다루게 해줍니다. 의사결정을 프레이밍하고, 리서치하고, 산출물을 검토하고, 범위가 명확한 변경을 구현하거나 후속 수정을 하고 — 완료를 주장하는 대신 실제 명령 증거로 무엇을 했는지 증명합니다. 두 이전 mod의 후속입니다. [CruiseUX](https://github.com/homebodify/letta-mod-cruiseux)는 UX/UI 탐색(프레이밍, 리서치, 적응형 인터뷰, 아이데이션, 명세, 의사결정 준비 검토)을, [CruiseCode](https://github.com/homebodify/letta-mod-cruisecode)는 증거 우선 코딩 워크플로우(계약, 실시간 진행, 검사 증거, 판정, 보고서)를 담당했습니다. 이 능력들이 이제 하나의 계약, 하나의 실행 상태, 하나의 명령을 공유합니다. 원본 저장소는 읽기 전용 아카이브로 남아 있습니다.
+
+**알파.** 작성자의 로컬 설치는 복구용 백업을 남기고 Cruise로 전환했습니다. 원본 저장소와 작업 기록은 그대로입니다. [설치 검증](https://github.com/homebodify/letta-mod-cruise/blob/main/docs/local-installation.md) · 이전 mod 대비 변경 사항은 [마이그레이션 노트](https://github.com/homebodify/letta-mod-cruise/blob/main/docs/migration.md) · [출처](https://github.com/homebodify/letta-mod-cruise/blob/main/NOTICE.md)
 
 ## 명령
 
@@ -39,7 +41,7 @@ UX 탐색, 구현, 부분 수정을 하나의 진입점으로 연결합니다. �
 - 외부 JSON 인계 파일 읽기: 기존 승인·검증 상태는 이어받지 않음
 - 내부 도구 `cruise_update`, `cruise_approve`, `cruise_verify`
 
-`verified`는 **선언한** 필수 검사와 요구사항에 현재 상태의 성공 증거가 있다는 뜻입니다. 검사가 요구 동작을 충분히 입증하는지는 사람·에이전트의 판단입니다. typecheck가 모든 동작을 입증하지 않으며 기술 검증은 사용성·임상적 타당성·사용자 승인이 아닙니다.
+`verified`는 **선언한** 필수 검사와 요구사항에 현재 상태의 성공 증거가 있다는 뜻입니다. 검사가 요구 동작을 충분히 입증하는지는 사람·에이전트의 판단입니다. typecheck가 모든 동작을 입증하지 않으며 기술 검증은 사용성·사용자 승인이 아닙니다.
 
 ## 개발과 전환
 
@@ -69,4 +71,4 @@ npm pack --dry-run
 - `/cruise` 실행 전에 Git worktree 안의 최종 프로젝트 cwd를 선택하세요. 디렉터리 이동이나 중첩 Git 초기화는 필요 없습니다. 실행 중 cwd/worktree를 바꿔도 상태를 자동 이전하지 않습니다. 기존 루트 작업은 읽을 수 있지만 이전 지문 증거는 다시 검사해야 합니다. 신원 없는 하위 디렉터리 상태나 복사된 작업은 자동 이전하지 않고 거부합니다.
 - 이전 작업 일괄 이전, 수동 증거 승인, 병렬 스케줄러, 자동 수정 루프는 구현 범위가 아닙니다. 사람·시각 검토를 수행한 것으로 꾸며내지 않습니다.
 
-[설계](docs/design.md) · [이전 안내](docs/migration.md) · [공식 Mod API](https://docs.letta.com/configuration/mods/index.md)
+[설계](https://github.com/homebodify/letta-mod-cruise/blob/main/docs/design.md) · [이전 안내](https://github.com/homebodify/letta-mod-cruise/blob/main/docs/migration.md) · [공식 Mod API](https://docs.letta.com/configuration/mods/index.md)

@@ -1,10 +1,12 @@
 # Cruise
 
-[English](README.md) | [한국어](README.ko.md)
+[English](https://github.com/homebodify/letta-mod-cruise/blob/main/README.md) | [한국어](https://github.com/homebodify/letta-mod-cruise/blob/main/README.ko.md)
 
 One entry point for UX discovery, scoped implementation, and follow-up changes. Run only the process the change needs; verify what you claim.
 
-**Local alpha — not publicly released.** The author's local installation has switched to Cruise with rollback backups; original repositories and run records remain intact. See [installation validation](docs/local-installation.md). This repository retains CruiseCode history and incorporates CruiseUX workflow guidance; see [provenance](NOTICE.md).
+Cruise is a Letta Code mod for working on a change end to end: frame the decision, research it, review an artifact, implement a bounded change, or fix a follow-up delta — then prove what was done with real command evidence instead of claiming completion. It is the successor of two earlier mods: [CruiseUX](https://github.com/homebodify/letta-mod-cruiseux), which guided UX/UI discovery (framing, research, adaptive interviews, ideation, specs, decision-readiness review), and [CruiseCode](https://github.com/homebodify/letta-mod-cruisecode), an evidence-first coding workflow (contracts, live progress, check evidence, verdicts, reports). Those capabilities now share one contract, one run state, and one command. The original repositories remain as read-only archives.
+
+**Alpha.** The author's local installation has switched to Cruise with rollback backups; original repositories and run records remain intact. See [installation validation](https://github.com/homebodify/letta-mod-cruise/blob/main/docs/local-installation.md). For what changed relative to the earlier mods, see [migration notes](https://github.com/homebodify/letta-mod-cruise/blob/main/docs/migration.md) and [provenance](https://github.com/homebodify/letta-mod-cruise/blob/main/NOTICE.md).
 
 ## Commands
 
@@ -71,4 +73,4 @@ The selected cwd (Git root or project subdirectory) contains private state at `.
 - Existing root runs remain readable without rewriting contracts or approvals, but versioned scope fingerprints invalidate old evidence until checks are rerun. Unversioned subdirectory state and copied runs fail closed; there is no automatic state migration.
 - No automatic legacy-run migration, manual evidence approval workflow, parallel scheduler or repair loop is claimed. Human/visual review remains explicit workflow work, not implicitly certified evidence.
 
-[Design](docs/design.md) · [Migration](docs/migration.md) · [Official Mod API](https://docs.letta.com/configuration/mods/index.md)
+[Design](https://github.com/homebodify/letta-mod-cruise/blob/main/docs/design.md) · [Migration](https://github.com/homebodify/letta-mod-cruise/blob/main/docs/migration.md) · [Official Mod API](https://docs.letta.com/configuration/mods/index.md)
