@@ -43,6 +43,22 @@ test('registers only cruise and three tools; disposal and activation have no sta
   assert.equal(existsSync(join(cwd, '.letta')), false);
   dispose(); assert.equal(commands.size, 0); assert.equal(tools.size, 0);
 });
+test('duplicate activation re-registers via override instead of colliding', t => {
+  // Letta Code 0.32.x can load one global package twice in a process; without
+  // override:true the second activation threw "already registered" and the mod
+  // failed to load. Simulate the runtime's registry: second register() only
+  // succeeds when override is set on the capability.
+  const commands = new Map(), tools = new Map();
+  const api = () => ({ capabilities: { commands: true, tools: true },
+    commands: { register(c) { if (commands.has(c.id) && !c.override) throw new Error(`Mod command '${c.id}' is already registered`); commands.set(c.id, c); return () => commands.delete(c.id); } },
+    tools: { register(x) { if (tools.has(x.name) && !x.override) throw new Error(`Mod tool '${x.name}' is already registered`); tools.set(x.name, x); return () => tools.delete(x.name); } } });
+  const dispose1 = activate(api());
+  const dispose2 = activate(api());
+  assert.deepEqual([...commands.keys()], ['cruise']);
+  assert.deepEqual([...tools.keys()].sort(), ['cruise_approve', 'cruise_update', 'cruise_verify']);
+  dispose2();
+  dispose1(); assert.equal(commands.size, 0); assert.equal(tools.size, 0); // both disposers run clean
+});
 test('help and empty status do not create state or prompt a model', async t => {
   const c = ctx(fixture(t), 'help');
   assert.equal((await handleCommand(c)).type, 'output');

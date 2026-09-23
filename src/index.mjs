@@ -265,20 +265,24 @@ export default function activate(letta) {
   const disposers = [];
   const toolsAvailable = !!letta.capabilities?.tools;
   if (letta.capabilities?.commands) {
-    disposers.push(letta.commands.register({ id: 'cruise', description: 'One entry for UX discovery, bounded implementation and partial changes', args: '<request>|status|resume|check|help', async run(ctx) {
+    disposers.push(letta.commands.register({ id: 'cruise', override: true, description: 'One entry for UX discovery, bounded implementation and partial changes', args: '<request>|status|resume|check|help', async run(ctx) {
       const text = String(ctx.args ?? '').trim();
       if (!toolsAvailable && !['', 'help', '-h', '--help', 'status'].includes(text)) return output('Cruise execution requires Mod tools on this host. Only help/status are available; no run was started.');
       try { return await handleCommand(ctx); } catch (error) { return output(`Cruise: ${error.message}`); }
     } }));
   }
   if (toolsAvailable) {
-    disposers.push(letta.tools.register({ name: 'cruise_update', description: 'During an explicitly started Cruise run, record the contract, save a checkpoint, import an explicit handoff, or finish based on captured evidence. Never sets approval or verified directly.', requiresApproval: true, parallelSafe: false, parameters: { type: 'object', properties: {
+    // override: true guards against a Letta Code runtime bug where the same global
+    // package is loaded twice in one process and the second registration collides
+    // with the first ("already registered by <this same file>"), which previously
+    // failed the whole mod. Overriding our own identical registration is a no-op.
+    disposers.push(letta.tools.register({ name: 'cruise_update', override: true, description: 'During an explicitly started Cruise run, record the contract, save a checkpoint, import an explicit handoff, or finish based on captured evidence. Never sets approval or verified directly.', requiresApproval: true, parallelSafe: false, parameters: { type: 'object', properties: {
       action: { type: 'string', enum: ['contract', 'checkpoint', 'finish', 'import_handoff'] }, contract: contractSchema,
       phase: { type: 'string', enum: ['planned', 'awaiting_input', 'paused', 'implementing'] }, summary: { type: 'string', maxLength: 6000 },
       blockers: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, reason: { type: 'string' }, status: { type: 'string', enum: ['open', 'resolved'] } }, required: ['id', 'reason', 'status'], additionalProperties: false } }, handoff_path: { type: 'string' },
     }, required: ['action'], additionalProperties: false }, run: safe(handleUpdate) }));
-    disposers.push(letta.tools.register({ name: 'cruise_approve', description: 'Human approval gate for the exact Cruise contract or explicit takeover of an unfinished run. Present the complete contract in arguments; never self-approve or infer approval from a review request.', approvalPolicy: 'alwaysAsk', parallelSafe: false, parameters: { type: 'object', properties: { action: { type: 'string', enum: ['contract', 'takeover'] }, contract_hash: { type: 'string' }, contract: contractSchema, run_id: { type: 'string' } }, required: ['action'], additionalProperties: false }, run: safe(handleApprove) }));
-    disposers.push(letta.tools.register({ name: 'cruise_verify', description: 'Run the approved Cruise contract checks, capture command evidence, evaluate each requirement and generate the report. Failures remain resumable. No implementation, commits or automatic repair loop.', requiresApproval: true, parallelSafe: false, parameters: { type: 'object', properties: {}, additionalProperties: false }, run: safe(verify) }));
+    disposers.push(letta.tools.register({ name: 'cruise_approve', override: true, description: 'Human approval gate for the exact Cruise contract or explicit takeover of an unfinished run. Present the complete contract in arguments; never self-approve or infer approval from a review request.', approvalPolicy: 'alwaysAsk', parallelSafe: false, parameters: { type: 'object', properties: { action: { type: 'string', enum: ['contract', 'takeover'] }, contract_hash: { type: 'string' }, contract: contractSchema, run_id: { type: 'string' } }, required: ['action'], additionalProperties: false }, run: safe(handleApprove) }));
+    disposers.push(letta.tools.register({ name: 'cruise_verify', override: true, description: 'Run the approved Cruise contract checks, capture command evidence, evaluate each requirement and generate the report. Failures remain resumable. No implementation, commits or automatic repair loop.', requiresApproval: true, parallelSafe: false, parameters: { type: 'object', properties: {}, additionalProperties: false }, run: safe(verify) }));
   }
   // Deliberately no turn_end finalization: a clarification, cancellation or crash is not completion.
   return () => { for (const dispose of disposers.reverse()) dispose(); };
