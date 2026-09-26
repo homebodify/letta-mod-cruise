@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, readFile, mkdir, rm, stat, symlink, unlink, truncate } from 'node:fs/promises';
+import { mkdtemp, writeFile, readFile, mkdir, rm, stat, symlink, unlink, truncate, utimes } from 'node:fs/promises';
 import { tmpdir, homedir } from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
@@ -84,6 +84,22 @@ test('accepts nested directories but rejects home, external symlinks and excessi
   await assert.rejects(snapshotWorkspace(root), /smaller subdirectory/);
   await exec('git', ['-C', root, 'add', 'large']);
   await assert.rejects(snapshotWorkspace(root), error => /Largest: large 64 MiB[,.]/.test(error.message) && !/untracked archives/.test(error.message));
+});
+
+test('budget error suggests the widest fitting subdirectories, most recent first', async t => {
+  const root = await fixture(t);
+  await mkdir(path.join(root, 'big'));
+  await writeFile(path.join(root, 'big', 'blob'), '');
+  await truncate(path.join(root, 'big', 'blob'), 64 * 1024 * 1024 + 1);
+  await mkdir(path.join(root, 'app', 'src'), { recursive: true });
+  await writeFile(path.join(root, 'app', 'src', 'main.js'), 'x'.repeat(200000));
+  await mkdir(path.join(root, 'docs'));
+  await writeFile(path.join(root, 'docs', 'a.md'), 'y'.repeat(150000));
+  await utimes(path.join(root, 'app', 'src', 'main.js'), new Date(2020, 0, 1), new Date(2020, 0, 1));
+  await assert.rejects(snapshotWorkspace(root), error =>
+    /Subdirectories that fit \(relative to this folder, most recently changed first\): docs\/ 0\.1 MiB, app\/ 0\.2 MiB\./.test(error.message) &&
+    !/app\/src\//.test(error.message) && !/big\//.test(error.message.split('Subdirectories that fit:')[1]) &&
+    /without Cruise/.test(error.message));
 });
 
 test('actual completed exits and stdout predicates determine evidence', async t => {

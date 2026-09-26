@@ -23,6 +23,7 @@ const mib = bytes => bytes < 104858 ? "<0.1 MiB" : `${(bytes / 1048576).toFixed(
 async function budgetError(root, names) {
   const untracked = new Set((await git(root, ['ls-files', '-z', '--others', '--exclude-standard', '--', '.'], true) ?? '').split('\0').filter(Boolean));
   const groups = new Map();
+  const dirs = new Map(); // every directory prefix -> { bytes, latest mtime }
   let total = 0;
   for (const name of names) {
     if (secret(name)) continue;
@@ -35,16 +36,32 @@ async function budgetError(root, names) {
     group.bytes += stat.size;
     if (untracked.has(name)) group.untracked += stat.size;
     groups.set(key, group);
+    for (let i = 1; i < parts.length; i++) {
+      const dir = parts.slice(0, i).join('/') + '/';
+      const entry = dirs.get(dir) ?? { bytes: 0, latest: 0 };
+      entry.bytes += stat.size;
+      entry.latest = Math.max(entry.latest, stat.mtimeMs);
+      dirs.set(dir, entry);
+    }
     total += stat.size;
   }
   const largest = [...groups.values()].sort((a, b) => b.bytes - a.bytes).slice(0, 3)
     .map(g => `${g.key} ${mib(g.bytes)}${g.untracked ? ` (${mib(g.untracked)} untracked)` : ''}`);
   const untrackedTotal = [...groups.values()].reduce((sum, g) => sum + g.untracked, 0);
   const scope = workspaceIdentity(root).scope || '.';
+  // Widest directories that fit (their parent does not), most recently changed first:
+  // recent edits are the best available hint for where the work is.
+  const parentOf = dir => { const i = dir.slice(0, -1).lastIndexOf('/'); return i < 0 ? null : dir.slice(0, i + 1); };
+  const fits = [...dirs.entries()]
+    .filter(([dir, e]) => e.bytes <= MAX_BYTES && (parentOf(dir) === null || dirs.get(parentOf(dir)).bytes > MAX_BYTES))
+    .sort((a, b) => b[1].latest - a[1].latest || b[1].bytes - a[1].bytes)
+    .slice(0, 3).map(([dir, e]) => ({ dir, bytes: e.bytes }));
   const advice = [
-    'Start /cruise from a smaller subdirectory that contains only the files this work needs.',
+    fits.length ? `Subdirectories that fit (relative to this folder, most recently changed first): ${fits.map(f => `${f.dir} ${mib(f.bytes)}`).join(', ')}. Start /cruise from the one that contains the work; for implementation, pick one that also contains every file the change depends on, since files outside the selected folder cannot be verified.`
+      : 'Start /cruise from a smaller subdirectory that contains only the files this work needs.',
     untrackedTotal ? 'Untracked archives or build output can be excluded by adding them to .gitignore (ignored untracked files are not counted).' : null,
     'Tracked files count even if listed in .gitignore.',
+    'If the scope cannot be reduced, the work can proceed without Cruise.',
   ].filter(Boolean).join(' ');
   return new Error(`Workspace exceeds 64 MiB content budget: about ${mib(total)} counted in "${scope}". Largest: ${largest.join(', ')}. ${advice}`);
 }

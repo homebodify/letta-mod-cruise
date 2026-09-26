@@ -86,6 +86,8 @@ test('blocking command failures are explained by the agent, without starting a r
   assert.match(result.content, /dist\/ 64 MiB \(64 MiB untracked\)/);
   assert.match(result.content, /\.gitignore/);
   assert.match(result.content, /No new run was started/);
+  assert.match(result.content, /offer these options in order/);
+  assert.match(result.content, /continue the work without Cruise/);
   assert.equal(existsSync(join(c.cwd, '.letta')), false);
 });
 test('status failures stay model-free output', async t => {
