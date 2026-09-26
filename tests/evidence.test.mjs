@@ -80,6 +80,10 @@ test('accepts nested directories but rejects home, external symlinks and excessi
   await writeFile(path.join(root, 'large'), '');
   await truncate(path.join(root, 'large'), 64 * 1024 * 1024 + 1);
   await assert.rejects(snapshotWorkspace(root), /64 MiB/);
+  await assert.rejects(snapshotWorkspace(root), /Largest: large 64 MiB \(64 MiB untracked\)/);
+  await assert.rejects(snapshotWorkspace(root), /smaller subdirectory/);
+  await exec('git', ['-C', root, 'add', 'large']);
+  await assert.rejects(snapshotWorkspace(root), error => /Largest: large 64 MiB[,.]/.test(error.message) && !/untracked archives/.test(error.message));
 });
 
 test('actual completed exits and stdout predicates determine evidence', async t => {

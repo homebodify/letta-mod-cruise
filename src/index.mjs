@@ -5,7 +5,7 @@ import { activeRun, loadRun, saveRun, newRun, identity, sameOwner, claim, releas
 import { validateContract, reviseContract, evaluateRun, contractHash } from './core/contracts.mjs';
 import { snapshotWorkspace, executeChecks, validateDependencies } from './core/evidence.mjs';
 import { renderStatus, writeReport } from './core/report.mjs';
-import { classifyRequest, workflowPrompt, help } from './workflow.mjs';
+import { classifyRequest, workflowPrompt, failurePrompt, help } from './workflow.mjs';
 
 const output = text => ({ type: 'output', output: text });
 const prompt = run => ({ type: 'prompt', content: workflowPrompt(run), systemReminder: true });
@@ -268,7 +268,11 @@ export default function activate(letta) {
     disposers.push(letta.commands.register({ id: 'cruise', override: true, description: 'One entry for UX discovery, bounded implementation and partial changes', args: '<request>|status|resume|check|help', async run(ctx) {
       const text = String(ctx.args ?? '').trim();
       if (!toolsAvailable && !['', 'help', '-h', '--help', 'status'].includes(text)) return output('Cruise execution requires Mod tools on this host. Only help/status are available; no run was started.');
-      try { return await handleCommand(ctx); } catch (error) { return output(`Cruise: ${error.message}`); }
+      try { return await handleCommand(ctx); } catch (error) {
+        // status/help stay model-free; failures that block work are explained by the agent.
+        if (['', 'help', '-h', '--help', 'status'].includes(text)) return output(`Cruise: ${error.message}`);
+        return { type: 'prompt', content: failurePrompt({ args: text, cwd: ctx.cwd, message: error.message }), systemReminder: true };
+      }
     } }));
   }
   if (toolsAvailable) {

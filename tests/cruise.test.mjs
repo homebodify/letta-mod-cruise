@@ -72,6 +72,29 @@ test('tool-less host does not start an unusable run', async t => {
   assert.match((await command.run(c)).output, /requires Mod tools/);
   assert.equal(existsSync(join(c.cwd, '.letta')), false);
 });
+test('blocking command failures are explained by the agent, without starting a run', async t => {
+  let command;
+  const c = ctx(fixture(t), 'Review subject');
+  mkdirSync(join(c.cwd, 'dist'));
+  execFileSync('truncate', ['-s', String(64 * 1024 * 1024 + 1), join(c.cwd, 'dist', 'bundle.zip')]);
+  activate({ capabilities: { commands: true, tools: true }, commands: { register(x) { command = x; return () => {}; } }, tools: { register() { return () => {}; } } });
+  const result = await command.run(c);
+  assert.equal(result.type, 'prompt');
+  assert.equal(result.systemReminder, true);
+  assert.match(result.content, /Cruise command failed/);
+  assert.match(result.content, /64 MiB/);
+  assert.match(result.content, /dist\/ 64 MiB \(64 MiB untracked\)/);
+  assert.match(result.content, /\.gitignore/);
+  assert.match(result.content, /No new run was started/);
+  assert.equal(existsSync(join(c.cwd, '.letta')), false);
+});
+test('status failures stay model-free output', async t => {
+  let command;
+  activate({ capabilities: { commands: true, tools: true }, commands: { register(x) { command = x; return () => {}; } }, tools: { register() { return () => {}; } } });
+  const result = await command.run({ cwd: fixture(t), args: 'status' });
+  assert.equal(result.type, 'output');
+  assert.match(result.output, /^Cruise: /);
+});
 test('review and negated implementation requests never mint approval', async t => {
   for (const request of ['Fix nothing; only inspect the issue', 'Update the plan only; no code changes', '버튼을 검토해줘. 아직 수정하지 말고']) assert.equal(classifyRequest(request).intent, 'inspect');
   const c = ctx(fixture(t), 'Fix nothing; only inspect the issue');

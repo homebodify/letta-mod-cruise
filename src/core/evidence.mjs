@@ -16,6 +16,39 @@ const excluded = name => name.split('/').some(part => part === '.git' || part ==
 const secret = name => name.split('/').some(part => /^(?:\.env.*|\.ssh|\.aws|\.gnupg|.*credentials.*|.*secrets?.*|id_(?:rsa|dsa|ecdsa|ed25519)(?:\..*)?|.*\.(?:pem|key|p12|pfx|keystore)|\.npmrc|\.netrc)$/i.test(part));
 const metadata = stat => ['dev', 'ino', 'mode', 'size', 'mtimeNs', 'ctimeNs'].map(key => String(stat[key]));
 
+const mib = bytes => bytes < 104858 ? "<0.1 MiB" : `${(bytes / 1048576).toFixed(bytes < 10 * 1048576 ? 1 : 0)} MiB`;
+/** Explain a budget failure: which top-level entries under the scope carry the bytes,
+ * and whether they are untracked (fixable with .gitignore) or tracked (use a smaller scope).
+ * Stat-only; never opens file contents. */
+async function budgetError(root, names) {
+  const untracked = new Set((await git(root, ['ls-files', '-z', '--others', '--exclude-standard', '--', '.'], true) ?? '').split('\0').filter(Boolean));
+  const groups = new Map();
+  let total = 0;
+  for (const name of names) {
+    if (secret(name)) continue;
+    let stat;
+    try { stat = await lstat(path.resolve(root, name)); } catch { continue; }
+    if (!stat.isFile()) continue;
+    const parts = name.split('/');
+    const key = parts.length > 1 ? `${parts[0]}/` : parts[0];
+    const group = groups.get(key) ?? { key, bytes: 0, untracked: 0 };
+    group.bytes += stat.size;
+    if (untracked.has(name)) group.untracked += stat.size;
+    groups.set(key, group);
+    total += stat.size;
+  }
+  const largest = [...groups.values()].sort((a, b) => b.bytes - a.bytes).slice(0, 3)
+    .map(g => `${g.key} ${mib(g.bytes)}${g.untracked ? ` (${mib(g.untracked)} untracked)` : ''}`);
+  const untrackedTotal = [...groups.values()].reduce((sum, g) => sum + g.untracked, 0);
+  const scope = workspaceIdentity(root).scope || '.';
+  const advice = [
+    'Start /cruise from a smaller subdirectory that contains only the files this work needs.',
+    untrackedTotal ? 'Untracked archives or build output can be excluded by adding them to .gitignore (ignored untracked files are not counted).' : null,
+    'Tracked files count even if listed in .gitignore.',
+  ].filter(Boolean).join(' ');
+  return new Error(`Workspace exceeds 64 MiB content budget: about ${mib(total)} counted in "${scope}". Largest: ${largest.join(', ')}. ${advice}`);
+}
+
 async function git(cwd, args, allowMissing = false) {
   const env = { ...process.env, GIT_OPTIONAL_LOCKS: '0' };
   for (const key of Object.keys(env)) if (key.startsWith('GIT_') && key !== 'GIT_OPTIONAL_LOCKS') delete env[key];
@@ -72,11 +105,11 @@ export async function snapshotWorkspace(cwd) {
       } catch (error) { if (error.code !== 'ENOENT') throw error; }
       files.push({ path: name, type: 'symlink', hash: digest(target), metadata: metadata(stat) });
     } else if (!stat.isFile()) {
-      throw new Error('Unsupported workspace entry (including submodules)');
+      throw new Error(`Unsupported workspace entry (including submodules): ${name}. Start /cruise inside that entry or from a sibling subdirectory that excludes it.`);
     } else if (secret(name)) {
       files.push({ path: name, type: 'excluded-secret', metadata: metadata(stat) });
     } else {
-      if (stat.size > BigInt(MAX_BYTES - bytes)) throw new Error('Workspace exceeds 64 MiB content budget');
+      if (stat.size > BigInt(MAX_BYTES - bytes)) throw await budgetError(root, initial.names);
       const handle = await open(absolute, constants.O_RDONLY | constants.O_NOFOLLOW);
       try {
         const before = await handle.stat({ bigint: true });
@@ -87,7 +120,7 @@ export async function snapshotWorkspace(cwd) {
           const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
           if (!bytesRead) break;
           bytes += bytesRead;
-          if (bytes > MAX_BYTES) throw new Error('Workspace exceeds 64 MiB content budget');
+          if (bytes > MAX_BYTES) throw await budgetError(root, initial.names);
           hash.update(buffer.subarray(0, bytesRead));
         }
         if (JSON.stringify(metadata(before)) !== JSON.stringify(metadata(await handle.stat({ bigint: true }))) ||

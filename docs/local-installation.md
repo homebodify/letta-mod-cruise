@@ -43,3 +43,10 @@ python3 "$HOME/.letta/mod-backups/cruise-switch-20260914T221640Z/rollback.py"
 ```
 
 The script checks backup hashes, refuses to overwrite an existing old-mod file, disables only `npm:cruise`, restores both old files, and leaves unrelated registry entries alone. Run `/reload` in active sessions afterward. The rollback script was syntax-checked; rollback itself was not executed, since it would undo the requested installation.
+
+## 2026-09-26 update — alpha.3 visible command failures
+
+- Blocking `/cruise <request>`, `resume` and `check` failures now return a `prompt` result (system reminder) so the agent explains the failure in conversation; hosts may render plain command output faintly or not at all. The prompt states that no run was started and forbids calling Cruise tools. `status`/`help` failures stay model-free `output`.
+- The 64 MiB budget error now names the counted total, the three largest top-level entries (with untracked bytes), and remedies: a smaller subdirectory, or `.gitignore` for untracked archives/build output. The budget itself is unchanged. Submodule errors now name the entry.
+- Verification: 56/56 source tests (53 prior + 3 new), package check, live-loader smoke on the worktree and installed root.
+- Installed as `npm:cruise@0.1.0-alpha.3` from snapshot `$HOME/.letta/mod-sources/cruise/0.1.0-alpha.3-20260926T195644Z`; prior alpha.2 install and registry backed up to `$HOME/.letta/mod-backups/cruise-alpha2-before-alpha3-20260926T195644Z/` (restore by copying `package/` back and restoring `packages.json`). Run `/reload` in open sessions.
