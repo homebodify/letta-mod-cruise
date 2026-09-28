@@ -8,6 +8,7 @@ description: Coordinate scoped UX discovery, research, interviews, concepts, spe
 ## Entry and routing
 - Use `/cruise <request>`; controls are `/cruise status`, `resume`, `check`, and `help`.
 - Natural-language classification is a routing hint, never implementation authority.
+- If `cruise_update`, `cruise_approve` or `cruise_verify` is reported missing, do not restart the app or continue without Cruise. Ask the user to enter `/cruise resume` (or `/cruise status`); the command re-registers the tools for this session. Only if they are still missing after that, suggest a full app restart.
 - Read the selected reference before work; load another only when scope requires it:
   - [UX](references/ux.md): frame, research, adaptive interview, concepts, spec, prototype/test planning, review.
   - [Code](references/code.md): contract details, project checks, implementation and acceptance.

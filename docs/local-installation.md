@@ -56,3 +56,9 @@ The script checks backup hashes, refuses to overwrite an existing old-mod file, 
 - The 64 MiB budget error now lists up to three subdirectories that fit (widest folders whose parent does not fit), most recently changed first, relative to the selected folder, and adds that work may proceed without Cruise when scope cannot be reduced.
 - The failure prompt asks the agent to offer ordered options (fitting subdirectory, `.gitignore` for untracked bytes, continue without Cruise) and not to change cwd, edit `.gitignore` or start work itself.
 - Verification: 57/57 tests, package check, live-loader smoke. Fully restart the desktop app after installing (the `mods/index.mjs` stub is unchanged, so `/reload` keeps the old module).
+
+## 2026-09-28 update — alpha.5 self-healing tool registration
+
+- Symptom: `/cruise <request>` created a run and injected the workflow, but the agent got `Tool not found: cruise_update` (desktop 0.32.19). Cause: the global package is activated by more than one mod engine in the process; with `override` the later engine owns the global tool entries, and disposing that engine removes them by owner while the command stays registered.
+- Fix: every `/cruise` invocation re-registers the three tools from the live engine. The bundled skill tells the agent to ask for `/cruise resume` (or `/cruise status`) instead of an app restart when a tool is reported missing.
+- Verification: 58/58 tests (new regression), package check, live-loader smoke. Fully restart the desktop app after installing.

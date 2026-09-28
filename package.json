@@ -1,6 +1,6 @@
 {
   "name": "cruise",
-  "version": "0.1.0-alpha.4",
+  "version": "0.1.0-alpha.5",
   "private": true,
   "license": "MIT",
   "description": "One-entry UX and coding workflow with scoped changes and requirement-linked evidence for Letta Code.",

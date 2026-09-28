@@ -59,6 +59,17 @@ test('duplicate activation re-registers via override instead of colliding', t =>
   dispose2();
   dispose1(); assert.equal(commands.size, 0); assert.equal(tools.size, 0); // both disposers run clean
 });
+test('any /cruise invocation re-registers tools the host dropped', async t => {
+  // Host disposes a sibling engine and removes the global tool entries by owner
+  // (2026-09-28: "Tool not found: cruise_update" while /cruise still worked).
+  const commands = new Map(), tools = new Map();
+  activate({ capabilities: { commands: true, tools: true },
+    commands: { register(c) { commands.set(c.id, c); return () => commands.delete(c.id); } },
+    tools: { register(x) { tools.set(x.name, x); return () => tools.delete(x.name); } } });
+  tools.clear();
+  await commands.get('cruise').run(ctx(fixture(t), 'status'));
+  assert.deepEqual([...tools.keys()].sort(), ['cruise_approve', 'cruise_update', 'cruise_verify']);
+});
 test('help and empty status do not create state or prompt a model', async t => {
   const c = ctx(fixture(t), 'help');
   assert.equal((await handleCommand(c)).type, 'output');
